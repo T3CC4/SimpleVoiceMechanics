@@ -1,0 +1,7 @@
+de\tecca\simplevoicemechanics\SimpleVoiceMechanics.class
+de\tecca\simplevoicemechanics\listener\MobListener.class
+de\tecca\simplevoicemechanics\listener\SculkListener.class
+de\tecca\simplevoicemechanics\manager\ConfigManager.class
+de\tecca\simplevoicemechanics\event\VoiceDetectedEvent.class
+de\tecca\simplevoicemechanics\handler\VoiceHandler.class
+de\tecca\simplevoicemechanics\command\VoiceCommand.class

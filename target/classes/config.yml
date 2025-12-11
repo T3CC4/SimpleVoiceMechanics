@@ -1,0 +1,62 @@
+# ========================================
+# SimpleVoiceMechanics Configuration
+# ========================================
+#
+# This plugin integrates SimpleVoiceChat with Minecraft mechanics.
+# Mobs can hear players speaking and Sculk Sensors detect voice.
+#
+
+# ----------------------------------------
+# Mob Hearing Mechanics
+# ----------------------------------------
+# Controls which mobs can hear and react to player voices
+mob-hearing:
+  # Master switch for all mob hearing
+  enabled: true
+
+  # Hostile mobs (Zombies, Skeletons, Creepers, etc.)
+  # Will target speaking players
+  hostile-mobs: true
+
+  # Warden special behavior
+  # Increases anger based on voice volume
+  warden: true
+
+# ----------------------------------------
+# Sculk Sensor Detection
+# ----------------------------------------
+# Allows voice to trigger Sculk Sensors
+sculk-hearing:
+  # Enable/disable Sculk Sensor activation
+  enabled: true
+
+# ----------------------------------------
+# Detection Settings
+# ----------------------------------------
+# Global settings for voice detection
+
+# Maximum range for voice detection (in blocks)
+# Mobs and Sculk Sensors within this range can detect voice
+# Default: 16.0 (standard Sculk Sensor range)
+hearing-range: 16.0
+
+# Minimum voice volume to register (0.0 - 1.0)
+# Lower values = more sensitive detection
+# Higher values = only loud voices detected
+# Default: 0.1 (very sensitive)
+volume-threshold: 0.1
+
+# Advanced detection settings
+detection:
+  # Minimum effective volume for mob aggro (0.0 - 1.0)
+  # After distance calculation, this is the threshold
+  # Default: 0.2
+  min-volume: 0.2
+
+# ----------------------------------------
+# Performance Notes
+# ----------------------------------------
+# - Lower hearing-range = better performance
+# - Higher volume-threshold = less frequent triggers
+# - Recommended range: 8-24 blocks
+# - Voice events fire in real-time
