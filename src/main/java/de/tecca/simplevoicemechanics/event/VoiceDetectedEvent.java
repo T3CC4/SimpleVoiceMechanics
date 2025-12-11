@@ -1,40 +1,23 @@
 package de.tecca.simplevoicemechanics.event;
 
-import org.bukkit.Location;
-import org.bukkit.entity.Player;
+import de.tecca.simplevoicemechanics.model.VoiceDetection;
 import org.bukkit.event.Event;
 import org.bukkit.event.HandlerList;
 
+/**
+ * Event fired when a player's voice is detected through SimpleVoiceChat.
+ */
 public class VoiceDetectedEvent extends Event {
 
     private static final HandlerList HANDLERS = new HandlerList();
+    private final VoiceDetection detection;
 
-    private final Player player;
-    private final Location location;
-    private final float volume;
-    private final double range;
-
-    public VoiceDetectedEvent(Player player, Location location, float volume, double range) {
-        this.player = player;
-        this.location = location;
-        this.volume = volume;
-        this.range = range;
+    public VoiceDetectedEvent(VoiceDetection detection) {
+        this.detection = detection;
     }
 
-    public Player getPlayer() {
-        return player;
-    }
-
-    public Location getLocation() {
-        return location;
-    }
-
-    public float getVolume() {
-        return volume;
-    }
-
-    public double getRange() {
-        return range;
+    public VoiceDetection getDetection() {
+        return detection;
     }
 
     @Override

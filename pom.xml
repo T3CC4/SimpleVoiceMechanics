@@ -6,10 +6,11 @@
 
     <groupId>de.tecca</groupId>
     <artifactId>simplevoicemechanics</artifactId>
-    <version>1.0</version>
+    <version>1.0.0</version>
     <packaging>jar</packaging>
 
-    <name>simplevoicemechanics</name>
+    <name>SimpleVoiceMechanics</name>
+    <description>Advanced voice detection mechanics for SimpleVoiceChat</description>
 
     <properties>
         <java.version>21</java.version>
@@ -18,7 +19,10 @@
 
     <build>
         <defaultGoal>clean package</defaultGoal>
+        <finalName>${project.name}-${project.version}</finalName>
+
         <plugins>
+            <!-- Compiler Plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -28,6 +32,8 @@
                     <target>${java.version}</target>
                 </configuration>
             </plugin>
+
+            <!-- Shade Plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -38,10 +44,14 @@
                         <goals>
                             <goal>shade</goal>
                         </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
         </plugins>
+
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
@@ -51,10 +61,13 @@
     </build>
 
     <repositories>
+        <!-- Spigot Repository -->
         <repository>
             <id>spigotmc-repo</id>
             <url>https://hub.spigotmc.org/nexus/content/repositories/snapshots/</url>
         </repository>
+
+        <!-- Max Henkel's Maven (SimpleVoiceChat) -->
         <repository>
             <id>maxhenkel-repo</id>
             <url>https://maven.maxhenkel.de/repository/public</url>
@@ -62,12 +75,15 @@
     </repositories>
 
     <dependencies>
+        <!-- Spigot API -->
         <dependency>
             <groupId>org.spigotmc</groupId>
             <artifactId>spigot</artifactId>
             <version>1.21.10-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
+
+        <!-- SimpleVoiceChat API -->
         <dependency>
             <groupId>de.maxhenkel.voicechat</groupId>
             <artifactId>voicechat-api</artifactId>
