@@ -6,43 +6,28 @@ import de.maxhenkel.voicechat.api.events.EventRegistration;
 import de.maxhenkel.voicechat.api.events.MicrophonePacketEvent;
 import de.tecca.simplevoicemechanics.SimpleVoiceMechanics;
 import de.tecca.simplevoicemechanics.event.VoiceDetectedEvent;
-import de.tecca.simplevoicemechanics.manager.DetectionManager;
-import de.tecca.simplevoicemechanics.model.VoiceDetection;
-import de.tecca.simplevoicemechanics.service.VolumeCalculationService;
+import de.tecca.simplevoicemechanics.manager.ConfigManager;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 
-/**
- * Handles SimpleVoiceChat API integration.
- * Processes microphone packets and dispatches voice detection events.
- */
 public class VoiceHandler implements VoicechatPlugin {
 
     private final SimpleVoiceMechanics plugin;
-    private final VolumeCalculationService volumeService;
-    private final DetectionManager detectionManager;
     private VoicechatApi voicechatApi;
 
-    public VoiceHandler(
-            SimpleVoiceMechanics plugin,
-            VolumeCalculationService volumeService,
-            DetectionManager detectionManager
-    ) {
+    public VoiceHandler(SimpleVoiceMechanics plugin) {
         this.plugin = plugin;
-        this.volumeService = volumeService;
-        this.detectionManager = detectionManager;
     }
 
     @Override
     public String getPluginId() {
-        return "simplevoicemechanics";
+        return "simplevoicelistener";
     }
 
     @Override
     public void initialize(VoicechatApi api) {
         this.voicechatApi = api;
-        plugin.getLogger().info("VoiceChat API initialized successfully!");
     }
 
     @Override
@@ -50,50 +35,50 @@ public class VoiceHandler implements VoicechatPlugin {
         registration.registerEvent(MicrophonePacketEvent.class, this::onMicrophonePacket);
     }
 
-    /**
-     * Handles microphone packet events from SimpleVoiceChat.
-     *
-     * @param event Microphone packet event
-     */
     private void onMicrophonePacket(MicrophonePacketEvent event) {
-        try {
-            processVoicePacket(event);
-        } catch (Exception e) {
-            plugin.getLogger().warning("Error processing voice packet: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Processes voice packet and creates detection event.
-     *
-     * @param event Microphone packet event
-     */
-    private void processVoicePacket(MicrophonePacketEvent event) {
-        // Get player
+        // Spieler Position holen
         Player player = Bukkit.getPlayer(event.getSenderConnection().getPlayer().getUuid());
         if (player == null || !player.isOnline()) {
             return;
         }
 
-        // Calculate volume
-        byte[] audioData = event.getPacket().getOpusEncodedData();
-        double volume = volumeService.calculateVolume(audioData);
+        Location playerLoc = player.getLocation();
+        ConfigManager config = plugin.getConfigManager();
+        double hearingRange = config.getHearingRange();
 
-        // Check volume threshold
-        if (!detectionManager.shouldProcessVolume(volume)) {
+        // Audio-Lautstärke berechnen
+        float volume = calculateVolume(event.getPacket().getOpusEncodedData());
+
+        // Nur wenn Lautstärke über Schwellwert
+        if (volume < config.getVolumeThreshold()) {
             return;
         }
 
-        // Create detection model
-        Location location = player.getLocation();
-        double range = detectionManager.getConfig().getHearingRange();
-        VoiceDetection detection = new VoiceDetection(player, location, volume, range);
-
-        // Dispatch event on main thread
+        // Voice-Event an Listener weitergeben
         Bukkit.getScheduler().runTask(plugin, () -> {
-            VoiceDetectedEvent voiceEvent = new VoiceDetectedEvent(detection);
+            VoiceDetectedEvent voiceEvent = new VoiceDetectedEvent(
+                    player,
+                    playerLoc,
+                    volume,
+                    hearingRange
+            );
             Bukkit.getPluginManager().callEvent(voiceEvent);
         });
+    }
+
+    private float calculateVolume(byte[] audioData) {
+        if (audioData == null || audioData.length == 0) {
+            return 0.0f;
+        }
+
+        // Einfache RMS-Berechnung für Lautstärke
+        long sum = 0;
+        for (byte b : audioData) {
+            sum += b * b;
+        }
+
+        double rms = Math.sqrt((double) sum / audioData.length);
+        return (float) (rms / 127.0); // Normalisiert auf 0-1
     }
 
     public VoicechatApi getVoicechatApi() {

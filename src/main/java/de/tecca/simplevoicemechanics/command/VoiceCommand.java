@@ -1,23 +1,13 @@
 package de.tecca.simplevoicemechanics.command;
 
 import de.tecca.simplevoicemechanics.SimpleVoiceMechanics;
-import de.tecca.simplevoicemechanics.manager.FeatureManager;
-import de.tecca.simplevoicemechanics.model.DetectionConfig;
+import de.tecca.simplevoicemechanics.manager.ConfigManager;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
-import org.bukkit.command.TabCompleter;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-
-/**
- * Main command handler for SimpleVoiceMechanics.
- * Provides admin commands for configuration and status.
- */
-public class VoiceCommand implements CommandExecutor, TabCompleter {
+public class VoiceCommand implements CommandExecutor {
 
     private final SimpleVoiceMechanics plugin;
 
@@ -27,8 +17,8 @@ public class VoiceCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!sender.hasPermission("voicemechanics.admin")) {
-            sender.sendMessage(ChatColor.RED + "You don't have permission to use this command!");
+        if (!sender.hasPermission("voicelistener.admin")) {
+            sender.sendMessage(ChatColor.RED + "Keine Berechtigung!");
             return true;
         }
 
@@ -38,121 +28,77 @@ public class VoiceCommand implements CommandExecutor, TabCompleter {
         }
 
         switch (args[0].toLowerCase()) {
-            case "reload" -> handleReload(sender);
-            case "toggle" -> {
+            case "reload":
+                plugin.getConfigManager().reload();
+                sender.sendMessage(ChatColor.GREEN + "Config neu geladen!");
+                break;
+
+            case "toggle":
                 if (args.length < 2) {
-                    sender.sendMessage(ChatColor.RED + "Usage: /voicemechanics toggle <mobs|sculk>");
+                    sender.sendMessage(ChatColor.RED + "Verwendung: /voicelistener toggle <mobs|sculk>");
                     return true;
                 }
-                handleToggle(sender, args[1]);
-            }
-            case "status" -> handleStatus(sender);
-            case "help" -> sendHelp(sender);
-            default -> {
-                sender.sendMessage(ChatColor.RED + "Unknown subcommand: " + args[0]);
-                sender.sendMessage(ChatColor.GRAY + "Use /voicemechanics help for available commands");
-            }
+                toggleFeature(sender, args[1]);
+                break;
+
+            case "status":
+                showStatus(sender);
+                break;
+
+            default:
+                sendHelp(sender);
+                break;
         }
 
         return true;
     }
 
-    private void handleReload(CommandSender sender) {
-        try {
-            plugin.reload();
-            sender.sendMessage(ChatColor.GREEN + "Configuration reloaded successfully!");
-        } catch (Exception e) {
-            sender.sendMessage(ChatColor.RED + "Failed to reload: " + e.getMessage());
-            plugin.getLogger().severe("Reload error: " + e.getMessage());
-        }
+    private void sendHelp(CommandSender sender) {
+        sender.sendMessage(ChatColor.GOLD + "=== SimpleVoiceListener ===");
+        sender.sendMessage(ChatColor.YELLOW + "/voicelistener reload " + ChatColor.GRAY + "- Config neu laden");
+        sender.sendMessage(ChatColor.YELLOW + "/voicelistener toggle <mobs|sculk> " + ChatColor.GRAY + "- Feature aktivieren/deaktivieren");
+        sender.sendMessage(ChatColor.YELLOW + "/voicelistener status " + ChatColor.GRAY + "- Status anzeigen");
     }
 
-    private void handleToggle(CommandSender sender, String feature) {
-        FeatureManager features = plugin.getFeatureManager();
+    private void toggleFeature(CommandSender sender, String feature) {
+        ConfigManager config = plugin.getConfigManager();
 
         switch (feature.toLowerCase()) {
-            case "mobs" -> {
-                boolean newState = !features.isMobHearingEnabled();
-                features.setMobHearingEnabled(newState);
-                plugin.getConfigManager().saveFeatures(features);
-                sender.sendMessage(ChatColor.GREEN + "Mob hearing: " + formatState(newState));
-            }
-            case "sculk" -> {
-                boolean newState = !features.isSculkHearingEnabled();
-                features.setSculkHearingEnabled(newState);
-                plugin.getConfigManager().saveFeatures(features);
-                sender.sendMessage(ChatColor.GREEN + "Sculk hearing: " + formatState(newState));
-            }
-            default -> {
-                sender.sendMessage(ChatColor.RED + "Unknown feature: " + feature);
-                sender.sendMessage(ChatColor.GRAY + "Available: mobs, sculk");
-            }
+            case "mobs":
+                boolean newMobState = !config.isMobHearingEnabled();
+                config.setMobHearingEnabled(newMobState);
+                sender.sendMessage(ChatColor.GREEN + "Mob-Hören: " +
+                        (newMobState ? ChatColor.GREEN + "aktiviert" : ChatColor.RED + "deaktiviert"));
+                break;
+
+            case "sculk":
+                boolean newSculkState = !config.isSculkHearingEnabled();
+                config.setSculkHearingEnabled(newSculkState);
+                sender.sendMessage(ChatColor.GREEN + "Sculk-Hören: " +
+                        (newSculkState ? ChatColor.GREEN + "aktiviert" : ChatColor.RED + "deaktiviert"));
+                break;
+
+            default:
+                sender.sendMessage(ChatColor.RED + "Unbekanntes Feature: " + feature);
+                sender.sendMessage(ChatColor.GRAY + "Verfügbar: mobs, sculk");
+                break;
         }
     }
 
-    private void handleStatus(CommandSender sender) {
-        FeatureManager features = plugin.getFeatureManager();
-        DetectionConfig config = plugin.getDetectionManager().getConfig();
+    private void showStatus(CommandSender sender) {
+        ConfigManager config = plugin.getConfigManager();
 
-        sender.sendMessage("");
-        sender.sendMessage(ChatColor.GOLD + "=== SimpleVoiceMechanics Status ===");
-        sender.sendMessage("");
-        sender.sendMessage(ChatColor.YELLOW + "Mob Hearing: " + formatState(features.isMobHearingEnabled()));
-        sender.sendMessage(ChatColor.GRAY + "  ├─ Hostile: " + formatState(features.isHostileMobHearingEnabled()));
-        sender.sendMessage(ChatColor.GRAY + "  └─ Warden: " + formatState(features.isWardenHearingEnabled()));
-        sender.sendMessage("");
-        sender.sendMessage(ChatColor.YELLOW + "Sculk: " + formatState(features.isSculkHearingEnabled()));
-        sender.sendMessage("");
-        sender.sendMessage(ChatColor.YELLOW + "Detection:");
-        sender.sendMessage(ChatColor.GRAY + "  ├─ Range: " + ChatColor.WHITE + config.getHearingRange() + " blocks");
-        sender.sendMessage(ChatColor.GRAY + "  ├─ Threshold: " + ChatColor.WHITE + String.format("%.2f", config.getVolumeThreshold()));
-        sender.sendMessage(ChatColor.GRAY + "  └─ Min Volume: " + ChatColor.WHITE + String.format("%.2f", config.getMinVolume()));
-        sender.sendMessage("");
-        sender.sendMessage(ChatColor.YELLOW + "Cache: " + ChatColor.WHITE + plugin.getEntityCache().getSize() + " entries");
-        sender.sendMessage("");
+        sender.sendMessage(ChatColor.GOLD + "=== Status ===");
+        sender.sendMessage(formatStatus("Mob-Hören", config.isMobHearingEnabled()));
+        sender.sendMessage(formatStatus("  Hostile Mobs", config.isHostileMobHearingEnabled()));
+        sender.sendMessage(formatStatus("  Warden", config.isWardenHearingEnabled()));
+        sender.sendMessage(formatStatus("Sculk-Hören", config.isSculkHearingEnabled()));
+        sender.sendMessage(ChatColor.YELLOW + "Reichweite: " + ChatColor.WHITE + config.getHearingRange() + " Blöcke");
+        sender.sendMessage(ChatColor.YELLOW + "Lautstärke-Schwelle: " + ChatColor.WHITE + config.getVolumeThreshold());
     }
 
-    private void sendHelp(CommandSender sender) {
-        sender.sendMessage("");
-        sender.sendMessage(ChatColor.GOLD + "=== SimpleVoiceMechanics ===");
-        sender.sendMessage("");
-        sender.sendMessage(ChatColor.YELLOW + "/voicemechanics reload " + ChatColor.GRAY + "- Reload config");
-        sender.sendMessage(ChatColor.YELLOW + "/voicemechanics toggle <feature> " + ChatColor.GRAY + "- Toggle feature");
-        sender.sendMessage(ChatColor.YELLOW + "/voicemechanics status " + ChatColor.GRAY + "- Show status");
-        sender.sendMessage(ChatColor.YELLOW + "/voicemechanics help " + ChatColor.GRAY + "- This message");
-        sender.sendMessage("");
-        sender.sendMessage(ChatColor.GRAY + "Features: " + ChatColor.WHITE + "mobs, sculk");
-        sender.sendMessage("");
-    }
-
-    private String formatState(boolean enabled) {
-        return enabled ? ChatColor.GREEN + "ENABLED ✓" : ChatColor.RED + "DISABLED ✗";
-    }
-
-    @Override
-    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        List<String> completions = new ArrayList<>();
-
-        if (!sender.hasPermission("voicemechanics.admin")) {
-            return completions;
-        }
-
-        if (args.length == 1) {
-            completions.addAll(Arrays.asList("reload", "toggle", "status", "help"));
-            return filterCompletions(completions, args[0]);
-        }
-
-        if (args.length == 2 && args[0].equalsIgnoreCase("toggle")) {
-            completions.addAll(Arrays.asList("mobs", "sculk"));
-            return filterCompletions(completions, args[1]);
-        }
-
-        return completions;
-    }
-
-    private List<String> filterCompletions(List<String> completions, String input) {
-        String lower = input.toLowerCase();
-        completions.removeIf(s -> !s.toLowerCase().startsWith(lower));
-        return completions;
+    private String formatStatus(String name, boolean enabled) {
+        return ChatColor.YELLOW + name + ": " +
+                (enabled ? ChatColor.GREEN + "✓" : ChatColor.RED + "✗");
     }
 }

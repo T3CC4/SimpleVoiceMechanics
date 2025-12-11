@@ -1,22 +1,4 @@
 name: SimpleVoiceMechanics
-version: '${project.version}'
+version: '1.0'
 main: de.tecca.simplevoicemechanics.SimpleVoiceMechanics
 api-version: '1.21'
-author: Tecca
-description: Advanced voice detection mechanics for SimpleVoiceChat - Makes mobs and sculk sensors react to player voice
-website: https://github.com/yourusername/SimpleVoiceMechanics
-
-depend:
-  - voicechat
-
-commands:
-  voicemechanics:
-    description: Main command for SimpleVoiceMechanics
-    usage: /<command> [reload|toggle|status|help]
-    permission: voicemechanics.admin
-    aliases: [vm, voicemech]
-
-permissions:
-  voicemechanics.admin:
-    description: Allows access to all SimpleVoiceMechanics commands
-    default: op
