@@ -1,0 +1,4 @@
+name: SimpleVoiceMechanics
+version: '1.0'
+main: de.tecca.simplevoicemechanics.SimpleVoiceMechanics
+api-version: '1.21'
