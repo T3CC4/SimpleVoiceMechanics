@@ -3,6 +3,7 @@ package de.tecca.simplevoicemechanics.listener;
 import de.tecca.simplevoicemechanics.SimpleVoiceMechanics;
 import de.tecca.simplevoicemechanics.event.VoiceDetectedEvent;
 import de.tecca.simplevoicemechanics.manager.ConfigManager;
+import de.tecca.simplevoicemechanics.util.VolumeCalculator;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.entity.*;
@@ -18,7 +19,8 @@ import java.util.Collection;
  * <ul>
  *   <li>Hostile mobs target speaking players</li>
  *   <li>Warden anger increases based on volume</li>
- *   <li>Distance affects detection intensity</li>
+ *   <li>Realistic distance-based sound attenuation</li>
+ *   <li>Volume-dependent detection probability</li>
  *   <li>Only affects Survival/Adventure mode players</li>
  * </ul>
  *
@@ -29,10 +31,7 @@ import java.util.Collection;
 public class MobListener implements Listener {
 
     /** Minimum effective volume required for mob detection */
-    private static final double MIN_EFFECTIVE_VOLUME = 0.1;
-
-    /** Multiplier for Warden anger increase (per volume unit) */
-    private static final int WARDEN_ANGER_MULTIPLIER = 20;
+    private static final double MIN_EFFECTIVE_VOLUME = 0.05;
 
     private final SimpleVoiceMechanics plugin;
 
@@ -47,14 +46,6 @@ public class MobListener implements Listener {
 
     /**
      * Handles voice detection events for mob mechanics.
-     *
-     * <p>When a player speaks, nearby mobs may react based on:
-     * <ul>
-     *   <li>Mob type (hostile, warden)</li>
-     *   <li>Distance to player</li>
-     *   <li>Voice volume</li>
-     *   <li>Player gamemode</li>
-     * </ul>
      *
      * @param event the voice detected event
      */
@@ -130,35 +121,42 @@ public class MobListener implements Listener {
             return;
         }
 
-        // Calculate distance-based volume
+        // Calculate distance
         double distance = mob.getLocation().distance(loc);
         if (distance > range) {
             return;
         }
 
-        double effectiveVolume = calculateEffectiveVolume(volume, distance, range);
+        // Calculate effective volume using VolumeCalculator
+        double effectiveVolume = VolumeCalculator.calculateMobEffectiveVolume(volume, distance);
+
+        // Debug logging
+        if (plugin.getConfig().getBoolean("debug.detection-logging", false)) {
+            plugin.getLogger().info(String.format(
+                    "Mob: %s | %s",
+                    mob.getType(),
+                    VolumeCalculator.getAttenuationDebugInfo(volume, distance)
+            ));
+        }
 
         if (effectiveVolume < MIN_EFFECTIVE_VOLUME) {
             return;
         }
 
+        // Calculate detection probability
+        double detectionChance = VolumeCalculator.calculateMobDetectionChance(
+                effectiveVolume,
+                distance,
+                range
+        );
+
+        // Probabilistic detection
+        if (Math.random() > detectionChance) {
+            return;
+        }
+
         // Make mob aware of player
         makeMobAware(mob, player, effectiveVolume);
-    }
-
-    /**
-     * Calculates effective volume based on distance.
-     *
-     * <p>Volume decreases linearly with distance using the formula:
-     * effectiveVolume = volume × (1 - distance/range)
-     *
-     * @param volume the original volume
-     * @param distance the distance from source
-     * @param range the maximum range
-     * @return the effective volume at the given distance
-     */
-    private double calculateEffectiveVolume(float volume, double distance, double range) {
-        return volume * (1.0 - (distance / range));
     }
 
     /**
@@ -188,8 +186,16 @@ public class MobListener implements Listener {
      * @param effectiveVolume the effective volume
      */
     private void increaseWardenAnger(Warden warden, Player player, double effectiveVolume) {
-        int angerIncrease = (int) (effectiveVolume * WARDEN_ANGER_MULTIPLIER);
+        int angerIncrease = VolumeCalculator.calculateWardenAnger(effectiveVolume);
         warden.increaseAnger(player, angerIncrease);
+
+        // Debug logging
+        if (plugin.getConfig().getBoolean("debug.warden-logging", false)) {
+            plugin.getLogger().info(String.format(
+                    "Warden anger +%d (volume: %.3f)",
+                    angerIncrease, effectiveVolume
+            ));
+        }
     }
 
     /**

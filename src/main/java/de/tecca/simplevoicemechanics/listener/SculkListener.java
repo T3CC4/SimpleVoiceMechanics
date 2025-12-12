@@ -2,6 +2,7 @@ package de.tecca.simplevoicemechanics.listener;
 
 import de.tecca.simplevoicemechanics.SimpleVoiceMechanics;
 import de.tecca.simplevoicemechanics.event.VoiceDetectedEvent;
+import de.tecca.simplevoicemechanics.util.VolumeCalculator;
 import net.minecraft.server.level.EntityPlayer;
 import net.minecraft.world.level.gameevent.GameEvent;
 import org.bukkit.*;
@@ -25,7 +26,7 @@ import java.util.Map;
  * <p>Features:
  * <ul>
  *   <li>Activates both regular and calibrated Sculk Sensors</li>
- *   <li>Distance and volume-based activation</li>
+ *   <li>Realistic distance and volume-based activation</li>
  *   <li>1-second cooldown per sensor (matches vanilla behavior)</li>
  *   <li>Uses NMS for authentic game event triggering</li>
  * </ul>
@@ -43,7 +44,7 @@ public class SculkListener implements Listener {
     private static final long CLEANUP_MULTIPLIER = 10;
 
     /** Minimum effective volume for sensor activation */
-    private static final double MIN_EFFECTIVE_VOLUME = 0.1;
+    private static final double MIN_EFFECTIVE_VOLUME = 0.08;
 
     private final SimpleVoiceMechanics plugin;
 
@@ -61,9 +62,6 @@ public class SculkListener implements Listener {
 
     /**
      * Handles voice detection events for Sculk Sensor activation.
-     *
-     * <p>Searches for Sculk Sensors within range and triggers them
-     * based on voice volume and distance.
      *
      * @param event the voice detected event
      */
@@ -169,10 +167,31 @@ public class SculkListener implements Listener {
             return;
         }
 
-        // Calculate effective volume based on distance
-        double effectiveVolume = calculateEffectiveVolume(volume, distance, range);
+        // Calculate effective volume using VolumeCalculator
+        double effectiveVolume = VolumeCalculator.calculateSculkEffectiveVolume(volume, distance);
+
+        // Debug logging
+        if (plugin.getConfig().getBoolean("debug.sculk-logging", false)) {
+            plugin.getLogger().info(String.format(
+                    "Sculk: %s | %s",
+                    block.getType(),
+                    VolumeCalculator.getAttenuationDebugInfo(volume, distance)
+            ));
+        }
 
         if (effectiveVolume < MIN_EFFECTIVE_VOLUME) {
+            return;
+        }
+
+        // Calculate activation probability
+        double activationChance = VolumeCalculator.calculateSculkDetectionChance(
+                effectiveVolume,
+                distance,
+                range
+        );
+
+        // Probabilistic activation
+        if (Math.random() > activationChance) {
             return;
         }
 
@@ -200,25 +219,7 @@ public class SculkListener implements Listener {
     }
 
     /**
-     * Calculates effective volume based on distance.
-     *
-     * <p>Volume decreases linearly with distance.
-     *
-     * @param volume the original volume
-     * @param distance the distance from source
-     * @param range the maximum range
-     * @return the effective volume at the given distance
-     */
-    private double calculateEffectiveVolume(float volume, double distance, double range) {
-        return volume * (1.0 - (distance / range));
-    }
-
-    /**
      * Triggers a Sculk Sensor using Minecraft's native game event system.
-     *
-     * <p>Uses NMS (Net Minecraft Server) to properly activate the sensor
-     * as if a real game event occurred. This ensures compatibility with
-     * Redstone, comparators, and all vanilla mechanics.
      *
      * @param block the Sculk Sensor block
      * @param player the player causing the event
@@ -243,7 +244,13 @@ public class SculkListener implements Listener {
         net.minecraft.core.Holder<GameEvent> gameEventHolder = GameEvent.P; // STEP event
         level.a(nmsPlayer, gameEventHolder, pos);
 
-        plugin.getLogger().fine("Sculk Sensor activated at " + block.getLocation());
+        // Debug logging
+        if (plugin.getConfig().getBoolean("debug.sculk-logging", false) && volume > 0.5) {
+            plugin.getLogger().fine(String.format(
+                    "Sculk Sensor activated at %s by loud voice (%.2f)",
+                    block.getLocation(), volume
+            ));
+        }
     }
 
     /**
