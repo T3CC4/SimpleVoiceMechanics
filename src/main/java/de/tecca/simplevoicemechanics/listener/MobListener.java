@@ -212,6 +212,11 @@ public class MobListener implements Listener {
             return config.isWardenHearingEnabled();
         }
 
+        // Exclude neutral mobs (only aggressive when provoked)
+        if (mob instanceof Enderman || mob instanceof PigZombie) {
+            return false;
+        }
+
         // Hostile mobs (Monster interface)
         if (mob instanceof Monster) {
             return config.isHostileMobHearingEnabled();
