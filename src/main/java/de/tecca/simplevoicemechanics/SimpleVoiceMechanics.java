@@ -11,16 +11,26 @@ import org.bukkit.plugin.java.JavaPlugin;
 /**
  * Main plugin class for SimpleVoiceMechanics.
  *
- * <p>Integrates SimpleVoiceChat with Minecraft mechanics, allowing:
+ * <p>Integrates SimpleVoiceChat with Minecraft mechanics using a range-based detection system:
  * <ul>
- *   <li>Mobs to hear and react to player voices</li>
- *   <li>Sculk Sensors to detect voice activity</li>
- *   <li>Custom voice detection events for developers</li>
+ *   <li>Hostile mobs attack speaking players</li>
+ *   <li>Neutral mobs look at speaking players</li>
+ *   <li>Peaceful mobs look at and follow speaking players when sneaking</li>
+ *   <li>Warden reacts with distance-based anger</li>
+ *   <li>Sculk Sensors detect voice activity</li>
+ * </ul>
+ *
+ * <p>Features:
+ * <ul>
+ *   <li>Range-based detection (min-range, max-range, falloff-curve)</li>
+ *   <li>Per-category configuration overrides</li>
+ *   <li>Mob blacklists per category</li>
+ *   <li>Version-safe mob categorization</li>
+ *   <li>Paper API integration (no NMS)</li>
  * </ul>
  *
  * @author Tecca
  * @version 1.0.0
- * @since 1.0.0
  */
 public final class SimpleVoiceMechanics extends JavaPlugin {
 
@@ -58,7 +68,9 @@ public final class SimpleVoiceMechanics extends JavaPlugin {
         // Register commands
         registerCommands();
 
-        getLogger().info("Plugin successfully enabled!");
+        getLogger().info("SimpleVoiceMechanics successfully enabled!");
+        getLogger().info("Range-based detection system active");
+        getLogger().info("Paper API integration (no NMS)");
     }
 
     /**
@@ -66,7 +78,7 @@ public final class SimpleVoiceMechanics extends JavaPlugin {
      */
     @Override
     public void onDisable() {
-        getLogger().info("Plugin disabled!");
+        getLogger().info("SimpleVoiceMechanics disabled!");
     }
 
     /**
@@ -80,6 +92,7 @@ public final class SimpleVoiceMechanics extends JavaPlugin {
 
         if (service == null) {
             getLogger().severe("SimpleVoiceChat plugin not found! Please install it.");
+            getLogger().severe("Download: https://modrinth.com/plugin/simple-voice-chat");
             getServer().getPluginManager().disablePlugin(this);
             return false;
         }
@@ -96,6 +109,7 @@ public final class SimpleVoiceMechanics extends JavaPlugin {
     private void registerListeners() {
         getServer().getPluginManager().registerEvents(new MobListener(this), this);
         getServer().getPluginManager().registerEvents(new SculkListener(this), this);
+        getLogger().info("Event listeners registered (MobListener, SculkListener)");
     }
 
     /**
@@ -103,6 +117,7 @@ public final class SimpleVoiceMechanics extends JavaPlugin {
      */
     private void registerCommands() {
         getCommand("voicelistener").setExecutor(new VoiceCommand(this));
+        getLogger().info("Commands registered (/voicelistener)");
     }
 
     /**

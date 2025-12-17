@@ -4,7 +4,7 @@ main: de.tecca.simplevoicemechanics.SimpleVoiceMechanics
 api-version: '1.21'
 author: Tecca
 description: Advanced voice detection mechanics for SimpleVoiceChat
-website: https://github.com/yourusername/SimpleVoiceMechanics
+website: https://github.com/T3CC4/SimpleVoiceMechanics
 
 # Commands
 commands:

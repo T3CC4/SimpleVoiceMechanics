@@ -1,202 +1,318 @@
 package de.tecca.simplevoicemechanics.manager;
 
 import de.tecca.simplevoicemechanics.SimpleVoiceMechanics;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.entity.EntityType;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
- * Manages plugin configuration settings.
+ * Manages plugin configuration with range-based detection system.
  *
- * <p>Handles loading, saving, and accessing all configuration values
- * including:
+ * <p>Handles:
  * <ul>
- *   <li>Mob hearing settings</li>
- *   <li>Sculk Sensor detection</li>
- *   <li>Detection ranges and thresholds</li>
+ *   <li>Global detection settings (max-range, min-range, falloff-curve)</li>
+ *   <li>Per-category overrides (hostile, neutral, peaceful, warden, sculk)</li>
+ *   <li>Mob blacklists</li>
+ *   <li>Peaceful mob behaviors (look-at, follow-when-sneaking)</li>
  * </ul>
  *
  * @author Tecca
  * @version 1.0.0
- * @since 1.0.0
  */
 public class ConfigManager {
 
-    // Configuration keys
-    private static final String KEY_MOB_ENABLED = "mob-hearing.enabled";
-    private static final String KEY_MOB_HOSTILE = "mob-hearing.hostile-mobs";
-    private static final String KEY_MOB_WARDEN = "mob-hearing.warden";
-    private static final String KEY_SCULK_ENABLED = "sculk-hearing.enabled";
-    private static final String KEY_HEARING_RANGE = "hearing-range";
-    private static final String KEY_VOLUME_THRESHOLD = "volume-threshold";
-    private static final String KEY_MIN_VOLUME = "detection.min-volume";
-
-    // Default values
-    private static final boolean DEFAULT_MOB_ENABLED = true;
-    private static final boolean DEFAULT_HOSTILE_ENABLED = true;
-    private static final boolean DEFAULT_WARDEN_ENABLED = true;
-    private static final boolean DEFAULT_SCULK_ENABLED = true;
-    private static final double DEFAULT_HEARING_RANGE = 16.0;
-    private static final double DEFAULT_VOLUME_THRESHOLD = 0.1;
-    private static final double DEFAULT_MIN_VOLUME = 0.2;
+    // Configuration paths
+    private static final String PATH_DETECTION = "detection";
+    private static final String PATH_MOB_HEARING = "mob-hearing";
+    private static final String PATH_SCULK = "sculk-hearing";
 
     private final SimpleVoiceMechanics plugin;
     private FileConfiguration config;
 
-    // Cached configuration values
-    private boolean mobHearingEnabled;
-    private boolean hostileMobHearingEnabled;
-    private boolean wardenHearingEnabled;
-    private boolean sculkHearingEnabled;
-    private double hearingRange;
-    private float volumeThreshold;
+    // Global detection settings
+    private double defaultMaxRange;
+    private double defaultMinRange;
+    private double defaultFalloffCurve;
 
-    /**
-     * Constructs a new ConfigManager.
-     *
-     * @param plugin the plugin instance
-     */
+    // Mob hearing settings
+    private boolean mobHearingEnabled;
+
+    // Hostile mobs
+    private boolean hostileMobsEnabled;
+    private Double hostileMaxRange;
+    private Double hostileMinRange;
+    private Double hostileFalloffCurve;
+    private Set<EntityType> hostileBlacklist;
+
+    // Neutral mobs
+    private boolean neutralMobsEnabled;
+    private boolean neutralLookAtPlayer;
+    private Double neutralMaxRange;
+    private Double neutralMinRange;
+    private Double neutralFalloffCurve;
+    private Set<EntityType> neutralBlacklist;
+
+    // Peaceful mobs
+    private boolean peacefulMobsEnabled;
+    private boolean peacefulLookAtPlayer;
+    private Double peacefulMaxRange;
+    private Double peacefulMinRange;
+    private Double peacefulFalloffCurve;
+    private Set<EntityType> peacefulBlacklist;
+    private boolean followWhenSneakingEnabled;
+    private int followDuration;
+    private double followMaxDistance;
+
+    // Warden
+    private boolean wardenEnabled;
+    private Double wardenMaxRange;
+    private Double wardenMinRange;
+    private Double wardenFalloffCurve;
+
+    // Sculk sensors
+    private boolean sculkEnabled;
+    private Double sculkMaxRange;
+    private Double sculkMinRange;
+    private Double sculkFalloffCurve;
+    private long sculkCooldown;
+
     public ConfigManager(SimpleVoiceMechanics plugin) {
         this.plugin = plugin;
     }
 
     /**
-     * Loads the configuration from disk.
-     *
-     * <p>Creates default config if it doesn't exist, then loads
-     * all values into memory for fast access.
+     * Loads configuration from disk.
      */
     public void loadConfig() {
         plugin.saveDefaultConfig();
         plugin.reloadConfig();
         config = plugin.getConfig();
 
-        // Load values
-        mobHearingEnabled = config.getBoolean(KEY_MOB_ENABLED, DEFAULT_MOB_ENABLED);
-        hostileMobHearingEnabled = config.getBoolean(KEY_MOB_HOSTILE, DEFAULT_HOSTILE_ENABLED);
-        wardenHearingEnabled = config.getBoolean(KEY_MOB_WARDEN, DEFAULT_WARDEN_ENABLED);
-        sculkHearingEnabled = config.getBoolean(KEY_SCULK_ENABLED, DEFAULT_SCULK_ENABLED);
-        hearingRange = config.getDouble(KEY_HEARING_RANGE, DEFAULT_HEARING_RANGE);
-        volumeThreshold = (float) config.getDouble(KEY_VOLUME_THRESHOLD, DEFAULT_VOLUME_THRESHOLD);
-
-        // Save defaults if any were missing
-        saveDefaults();
+        loadGlobalSettings();
+        loadMobHearingSettings();
+        loadSculkSettings();
     }
 
     /**
-     * Saves default configuration values.
-     *
-     * <p>Ensures all configuration keys exist with proper default values.
+     * Loads global detection settings.
      */
-    private void saveDefaults() {
-        config.addDefault(KEY_MOB_ENABLED, DEFAULT_MOB_ENABLED);
-        config.addDefault(KEY_MOB_HOSTILE, DEFAULT_HOSTILE_ENABLED);
-        config.addDefault(KEY_MOB_WARDEN, DEFAULT_WARDEN_ENABLED);
-        config.addDefault(KEY_SCULK_ENABLED, DEFAULT_SCULK_ENABLED);
-        config.addDefault(KEY_HEARING_RANGE, DEFAULT_HEARING_RANGE);
-        config.addDefault(KEY_VOLUME_THRESHOLD, DEFAULT_VOLUME_THRESHOLD);
-        config.addDefault(KEY_MIN_VOLUME, DEFAULT_MIN_VOLUME);
-
-        config.options().copyDefaults(true);
-        plugin.saveConfig();
+    private void loadGlobalSettings() {
+        defaultMaxRange = config.getDouble(PATH_DETECTION + ".max-range", 16.0);
+        defaultMinRange = config.getDouble(PATH_DETECTION + ".min-range", 2.0);
+        defaultFalloffCurve = config.getDouble(PATH_DETECTION + ".falloff-curve", 1.0);
     }
 
     /**
-     * Reloads the configuration from disk.
+     * Loads all mob hearing settings.
+     */
+    private void loadMobHearingSettings() {
+        mobHearingEnabled = config.getBoolean(PATH_MOB_HEARING + ".enabled", true);
+
+        // Hostile mobs
+        loadHostileMobSettings();
+
+        // Neutral mobs
+        loadNeutralMobSettings();
+
+        // Peaceful mobs
+        loadPeacefulMobSettings();
+
+        // Warden
+        loadWardenSettings();
+    }
+
+    /**
+     * Loads hostile mob settings.
+     */
+    private void loadHostileMobSettings() {
+        String path = PATH_MOB_HEARING + ".hostile-mobs";
+        ConfigurationSection section = config.getConfigurationSection(path);
+
+        hostileMobsEnabled = config.getBoolean(path + ".enabled", true);
+        hostileMaxRange = getOptionalDouble(path + ".max-range");
+        hostileMinRange = getOptionalDouble(path + ".min-range");
+        hostileFalloffCurve = getOptionalDouble(path + ".falloff-curve");
+        hostileBlacklist = loadBlacklist(path + ".blacklist");
+    }
+
+    /**
+     * Loads neutral mob settings.
+     */
+    private void loadNeutralMobSettings() {
+        String path = PATH_MOB_HEARING + ".neutral-mobs";
+
+        neutralMobsEnabled = config.getBoolean(path + ".enabled", true);
+        neutralLookAtPlayer = config.getBoolean(path + ".look-at-player", true);
+        neutralMaxRange = getOptionalDouble(path + ".max-range");
+        neutralMinRange = getOptionalDouble(path + ".min-range");
+        neutralFalloffCurve = getOptionalDouble(path + ".falloff-curve");
+        neutralBlacklist = loadBlacklist(path + ".blacklist");
+    }
+
+    /**
+     * Loads peaceful mob settings.
+     */
+    private void loadPeacefulMobSettings() {
+        String path = PATH_MOB_HEARING + ".peaceful-mobs";
+
+        peacefulMobsEnabled = config.getBoolean(path + ".enabled", true);
+        peacefulLookAtPlayer = config.getBoolean(path + ".look-at-player", true);
+        peacefulMaxRange = getOptionalDouble(path + ".max-range");
+        peacefulMinRange = getOptionalDouble(path + ".min-range");
+        peacefulFalloffCurve = getOptionalDouble(path + ".falloff-curve");
+        peacefulBlacklist = loadBlacklist(path + ".blacklist");
+
+        // Follow when sneaking
+        String followPath = path + ".follow-when-sneaking";
+        followWhenSneakingEnabled = config.getBoolean(followPath + ".enabled", true);
+        followDuration = config.getInt(followPath + ".duration", 60);
+        followMaxDistance = config.getDouble(followPath + ".max-distance", 12.0);
+    }
+
+    /**
+     * Loads warden settings.
+     */
+    private void loadWardenSettings() {
+        String path = PATH_MOB_HEARING + ".warden";
+
+        wardenEnabled = config.getBoolean(path + ".enabled", true);
+        wardenMaxRange = getOptionalDouble(path + ".max-range");
+        wardenMinRange = getOptionalDouble(path + ".min-range");
+        wardenFalloffCurve = getOptionalDouble(path + ".falloff-curve");
+    }
+
+    /**
+     * Loads sculk sensor settings.
+     */
+    private void loadSculkSettings() {
+        sculkEnabled = config.getBoolean(PATH_SCULK + ".enabled", true);
+        sculkMaxRange = getOptionalDouble(PATH_SCULK + ".max-range");
+        sculkMinRange = getOptionalDouble(PATH_SCULK + ".min-range");
+        sculkFalloffCurve = getOptionalDouble(PATH_SCULK + ".falloff-curve");
+        sculkCooldown = config.getLong(PATH_SCULK + ".cooldown", 1000);
+    }
+
+    /**
+     * Gets optional double from config (returns null if not set or null).
+     */
+    private Double getOptionalDouble(String path) {
+        if (!config.isSet(path) || config.getString(path) == null ||
+                config.getString(path).equalsIgnoreCase("null")) {
+            return null;
+        }
+        return config.getDouble(path);
+    }
+
+    /**
+     * Loads entity type blacklist from config.
+     */
+    private Set<EntityType> loadBlacklist(String path) {
+        Set<EntityType> blacklist = new HashSet<>();
+        List<String> list = config.getStringList(path);
+
+        for (String typeName : list) {
+            try {
+                EntityType type = EntityType.valueOf(typeName.toUpperCase());
+                blacklist.add(type);
+            } catch (IllegalArgumentException e) {
+                plugin.getLogger().warning("Invalid entity type in blacklist: " + typeName);
+            }
+        }
+
+        return blacklist;
+    }
+
+    /**
+     * Reloads configuration.
      */
     public void reload() {
         loadConfig();
     }
 
-    /**
-     * Gets whether mob hearing is enabled.
-     *
-     * @return true if mob hearing is enabled
-     */
-    public boolean isMobHearingEnabled() {
-        return mobHearingEnabled;
-    }
+    // ==================== GETTERS ====================
+
+    // Global settings
+    public double getDefaultMaxRange() { return defaultMaxRange; }
+    public double getDefaultMinRange() { return defaultMinRange; }
+    public double getDefaultFalloffCurve() { return defaultFalloffCurve; }
+
+    // Mob hearing
+    public boolean isMobHearingEnabled() { return mobHearingEnabled; }
+
+    // Hostile mobs
+    public boolean isHostileMobsEnabled() { return hostileMobsEnabled; }
+    public double getHostileMaxRange() { return hostileMaxRange != null ? hostileMaxRange : defaultMaxRange; }
+    public double getHostileMinRange() { return hostileMinRange != null ? hostileMinRange : defaultMinRange; }
+    public double getHostileFalloffCurve() { return hostileFalloffCurve != null ? hostileFalloffCurve : defaultFalloffCurve; }
+    public boolean isHostileBlacklisted(EntityType type) { return hostileBlacklist.contains(type); }
+
+    // Neutral mobs
+    public boolean isNeutralMobsEnabled() { return neutralMobsEnabled; }
+    public boolean shouldNeutralLookAtPlayer() { return neutralLookAtPlayer; }
+    public double getNeutralMaxRange() { return neutralMaxRange != null ? neutralMaxRange : defaultMaxRange; }
+    public double getNeutralMinRange() { return neutralMinRange != null ? neutralMinRange : defaultMinRange; }
+    public double getNeutralFalloffCurve() { return neutralFalloffCurve != null ? neutralFalloffCurve : defaultFalloffCurve; }
+    public boolean isNeutralBlacklisted(EntityType type) { return neutralBlacklist.contains(type); }
+
+    // Peaceful mobs
+    public boolean isPeacefulMobsEnabled() { return peacefulMobsEnabled; }
+    public boolean shouldPeacefulLookAtPlayer() { return peacefulLookAtPlayer; }
+    public double getPeacefulMaxRange() { return peacefulMaxRange != null ? peacefulMaxRange : defaultMaxRange; }
+    public double getPeacefulMinRange() { return peacefulMinRange != null ? peacefulMinRange : defaultMinRange; }
+    public double getPeacefulFalloffCurve() { return peacefulFalloffCurve != null ? peacefulFalloffCurve : defaultFalloffCurve; }
+    public boolean isPeacefulBlacklisted(EntityType type) { return peacefulBlacklist.contains(type); }
+    public boolean isFollowWhenSneakingEnabled() { return followWhenSneakingEnabled; }
+    public int getFollowDuration() { return followDuration; }
+    public double getFollowMaxDistance() { return followMaxDistance; }
+
+    // Warden
+    public boolean isWardenEnabled() { return wardenEnabled; }
+    public double getWardenMaxRange() { return wardenMaxRange != null ? wardenMaxRange : defaultMaxRange; }
+    public double getWardenMinRange() { return wardenMinRange != null ? wardenMinRange : defaultMinRange; }
+    public double getWardenFalloffCurve() { return wardenFalloffCurve != null ? wardenFalloffCurve : defaultFalloffCurve; }
+
+    // Sculk
+    public boolean isSculkEnabled() { return sculkEnabled; }
+    public double getSculkMaxRange() { return sculkMaxRange != null ? sculkMaxRange : defaultMaxRange; }
+    public double getSculkMinRange() { return sculkMinRange != null ? sculkMinRange : defaultMinRange; }
+    public double getSculkFalloffCurve() { return sculkFalloffCurve != null ? sculkFalloffCurve : defaultFalloffCurve; }
+    public long getSculkCooldown() { return sculkCooldown; }
+
+    // Legacy compatibility (deprecated)
+    @Deprecated
+    public boolean isHostileMobHearingEnabled() { return hostileMobsEnabled; }
+    @Deprecated
+    public boolean isWardenHearingEnabled() { return wardenEnabled; }
+    @Deprecated
+    public boolean isSculkHearingEnabled() { return sculkEnabled; }
+    @Deprecated
+    public double getHearingRange() { return defaultMaxRange; }
+    @Deprecated
+    public float getVolumeThreshold() { return 0.0f; }  // No longer used
+    @Deprecated
+    public double getMinVolumeForDetection() { return 0.0; }  // No longer used
 
     /**
-     * Gets whether hostile mob hearing is enabled.
-     *
-     * @return true if hostile mobs can hear
+     * Gets the raw FileConfiguration for debug settings.
      */
-    public boolean isHostileMobHearingEnabled() {
-        return hostileMobHearingEnabled;
+    public FileConfiguration getConfig() {
+        return config;
     }
 
-    /**
-     * Gets whether Warden hearing is enabled.
-     *
-     * @return true if Wardens can hear
-     */
-    public boolean isWardenHearingEnabled() {
-        return wardenHearingEnabled;
-    }
-
-    /**
-     * Gets whether Sculk Sensor detection is enabled.
-     *
-     * @return true if Sculk Sensors detect voice
-     */
-    public boolean isSculkHearingEnabled() {
-        return sculkHearingEnabled;
-    }
-
-    /**
-     * Gets the hearing range in blocks.
-     *
-     * @return the hearing range
-     */
-    public double getHearingRange() {
-        return hearingRange;
-    }
-
-    /**
-     * Gets the volume threshold for initial detection.
-     *
-     * <p>Voice below this volume will not trigger any events.
-     *
-     * @return the volume threshold (0.0 - 1.0)
-     */
-    public float getVolumeThreshold() {
-        return volumeThreshold;
-    }
-
-    /**
-     * Gets the minimum volume required for mob detection.
-     *
-     * <p>After distance calculation, effective volume must exceed
-     * this threshold for mobs to detect the player.
-     *
-     * @return the minimum detection volume (0.0 - 1.0)
-     */
-    public double getMinVolumeForDetection() {
-        return config.getDouble(KEY_MIN_VOLUME, DEFAULT_MIN_VOLUME);
-    }
-
-    /**
-     * Sets whether mob hearing is enabled.
-     *
-     * <p>Saves the value to disk immediately.
-     *
-     * @param enabled whether mob hearing should be enabled
-     */
+    // Setters for commands
     public void setMobHearingEnabled(boolean enabled) {
         this.mobHearingEnabled = enabled;
-        config.set(KEY_MOB_ENABLED, enabled);
+        config.set(PATH_MOB_HEARING + ".enabled", enabled);
         plugin.saveConfig();
     }
 
-    /**
-     * Sets whether Sculk Sensor detection is enabled.
-     *
-     * <p>Saves the value to disk immediately.
-     *
-     * @param enabled whether Sculk Sensor detection should be enabled
-     */
     public void setSculkHearingEnabled(boolean enabled) {
-        this.sculkHearingEnabled = enabled;
-        config.set(KEY_SCULK_ENABLED, enabled);
+        this.sculkEnabled = enabled;
+        config.set(PATH_SCULK + ".enabled", enabled);
         plugin.saveConfig();
     }
 }

@@ -6,22 +6,19 @@ import org.bukkit.event.Event;
 import org.bukkit.event.HandlerList;
 
 /**
- * Event fired when a player's voice is detected above the configured threshold.
+ * Event fired when a player's voice is detected.
  *
- * <p>This event provides information about:
+ * <p>This event provides:
  * <ul>
  *   <li>The speaking player</li>
  *   <li>The location where voice was detected</li>
- *   <li>The volume of the voice (0.0 - 1.0)</li>
- *   <li>The detection range</li>
  * </ul>
  *
- * <p>This event is called on the main thread and can be used by other
- * plugins to implement custom voice-based mechanics.
+ * <p>Note: Volume information is not available from the SimpleVoiceChat API.
+ * Detection range is configured per entity category in the config.yml.
  *
  * @author Tecca
  * @version 1.0.0
- * @since 1.0.0
  */
 public class VoiceDetectedEvent extends Event {
 
@@ -29,22 +26,16 @@ public class VoiceDetectedEvent extends Event {
 
     private final Player player;
     private final Location location;
-    private final float volume;
-    private final double range;
 
     /**
      * Constructs a new VoiceDetectedEvent.
      *
      * @param player the player who spoke
      * @param location the location where voice was detected
-     * @param volume the voice volume (0.0 - 1.0)
-     * @param range the detection range in blocks
      */
-    public VoiceDetectedEvent(Player player, Location location, float volume, double range) {
+    public VoiceDetectedEvent(Player player, Location location) {
         this.player = player;
         this.location = location;
-        this.volume = volume;
-        this.range = range;
     }
 
     /**
@@ -65,45 +56,11 @@ public class VoiceDetectedEvent extends Event {
         return location;
     }
 
-    /**
-     * Gets the voice volume.
-     *
-     * <p>Volume is normalized between 0.0 (silent) and 1.0 (maximum).
-     * The volume is calculated using RMS (Root Mean Square) of the audio data.
-     *
-     * @return the voice volume (0.0 - 1.0)
-     */
-    public float getVolume() {
-        return volume;
-    }
-
-    /**
-     * Gets the detection range.
-     *
-     * <p>Entities and blocks within this range can potentially detect the voice,
-     * though effective detection also depends on volume and distance.
-     *
-     * @return the detection range in blocks
-     */
-    public double getRange() {
-        return range;
-    }
-
-    /**
-     * Gets the handler list for this event.
-     *
-     * @return the handler list
-     */
     @Override
     public HandlerList getHandlers() {
         return HANDLERS;
     }
 
-    /**
-     * Gets the static handler list for this event.
-     *
-     * @return the static handler list
-     */
     public static HandlerList getHandlerList() {
         return HANDLERS;
     }

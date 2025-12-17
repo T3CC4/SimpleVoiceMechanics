@@ -2,17 +2,13 @@ package de.tecca.simplevoicemechanics.listener;
 
 import de.tecca.simplevoicemechanics.SimpleVoiceMechanics;
 import de.tecca.simplevoicemechanics.event.VoiceDetectedEvent;
-import de.tecca.simplevoicemechanics.util.VolumeCalculator;
-import net.minecraft.server.level.EntityPlayer;
-import net.minecraft.world.level.gameevent.GameEvent;
+import de.tecca.simplevoicemechanics.manager.ConfigManager;
+import de.tecca.simplevoicemechanics.util.RangeCalculator;
 import org.bukkit.*;
 import org.bukkit.block.Block;
-import org.bukkit.craftbukkit.v1_21_R6.entity.CraftPlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.craftbukkit.v1_21_R6.CraftWorld;
-import net.minecraft.core.BlockPosition;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -20,54 +16,31 @@ import java.util.Map;
 /**
  * Handles Sculk Sensor activation from voice detection.
  *
- * <p>This listener triggers Sculk Sensors (regular and calibrated) when
- * players speak nearby, using Minecraft's native game event system.
+ * <p>Triggers Sculk Sensors (regular and calibrated) when players speak nearby.
+ * Uses range-based detection with configurable min/max range and falloff curve.
  *
- * <p>Features:
- * <ul>
- *   <li>Activates both regular and calibrated Sculk Sensors</li>
- *   <li>Realistic distance and volume-based activation</li>
- *   <li>1-second cooldown per sensor (matches vanilla behavior)</li>
- *   <li>Uses NMS for authentic game event triggering</li>
- * </ul>
+ * <p>Uses Paper's native GameEvent API for triggering Sculk Sensors without NMS.
  *
  * @author Tecca
  * @version 1.0.0
- * @since 1.0.0
  */
 public class SculkListener implements Listener {
-
-    /** Cooldown duration in milliseconds (matches vanilla Sculk Sensor) */
-    private static final long COOLDOWN_MILLIS = 1000;
-
-    /** Multiplier for automatic cooldown cleanup (10x cooldown) */
-    private static final long CLEANUP_MULTIPLIER = 10;
-
-    /** Minimum effective volume for sensor activation */
-    private static final double MIN_EFFECTIVE_VOLUME = 0.08;
 
     private final SimpleVoiceMechanics plugin;
 
     /** Tracks last trigger time for each Sculk Sensor location */
     private final Map<Location, Long> lastTriggerTime = new HashMap<>();
 
-    /**
-     * Constructs a new SculkListener.
-     *
-     * @param plugin the plugin instance
-     */
     public SculkListener(SimpleVoiceMechanics plugin) {
         this.plugin = plugin;
     }
 
     /**
      * Handles voice detection events for Sculk Sensor activation.
-     *
-     * @param event the voice detected event
      */
     @EventHandler
     public void onVoiceDetected(VoiceDetectedEvent event) {
-        if (!plugin.getConfigManager().isSculkHearingEnabled()) {
+        if (!plugin.getConfigManager().isSculkEnabled()) {
             return;
         }
 
@@ -79,17 +52,9 @@ public class SculkListener implements Listener {
         }
 
         Location loc = event.getLocation();
-        double range = event.getRange();
-        float volume = event.getVolume();
-
-        // Check minimum volume threshold
-        double minVolume = plugin.getConfigManager().getMinVolumeForDetection();
-        if (volume < minVolume) {
-            return;
-        }
 
         // Search for and activate nearby Sculk Sensors
-        processSculkSensors(player, loc, range, volume);
+        processSculkSensors(player, loc);
 
         // Clean up old cooldown entries
         cleanupOldTriggers();
@@ -97,9 +62,6 @@ public class SculkListener implements Listener {
 
     /**
      * Checks if the player is in a valid gamemode for detection.
-     *
-     * @param player the player to check
-     * @return true if player is in Survival or Adventure mode
      */
     private boolean isValidGameMode(Player player) {
         GameMode mode = player.getGameMode();
@@ -108,14 +70,12 @@ public class SculkListener implements Listener {
 
     /**
      * Processes all Sculk Sensors within range.
-     *
-     * @param player the speaking player
-     * @param loc the voice location
-     * @param range the detection range
-     * @param volume the voice volume
      */
-    private void processSculkSensors(Player player, Location loc, double range, float volume) {
-        int searchRadius = (int) Math.ceil(range);
+    private void processSculkSensors(Player player, Location loc) {
+        ConfigManager config = plugin.getConfigManager();
+        double maxRange = config.getSculkMaxRange();
+
+        int searchRadius = (int) Math.ceil(maxRange);
         Location playerLoc = player.getLocation();
 
         // Iterate through all blocks in range
@@ -125,7 +85,7 @@ public class SculkListener implements Listener {
                     Block block = playerLoc.clone().add(x, y, z).getBlock();
 
                     if (isSculkSensor(block)) {
-                        processSculkSensor(block, player, loc, range, volume);
+                        processSculkSensor(block, player, loc);
                     }
                 }
             }
@@ -134,9 +94,6 @@ public class SculkListener implements Listener {
 
     /**
      * Checks if a block is a Sculk Sensor (regular or calibrated).
-     *
-     * @param block the block to check
-     * @return true if the block is a Sculk Sensor
      */
     private boolean isSculkSensor(Block block) {
         Material type = block.getType();
@@ -145,20 +102,18 @@ public class SculkListener implements Listener {
 
     /**
      * Processes a single Sculk Sensor for potential activation.
-     *
-     * @param block the Sculk Sensor block
-     * @param player the speaking player
-     * @param voiceLoc the voice location
-     * @param range the detection range
-     * @param volume the voice volume
      */
-    private void processSculkSensor(Block block, Player player, Location voiceLoc,
-                                    double range, float volume) {
+    private void processSculkSensor(Block block, Player player, Location voiceLoc) {
+        ConfigManager config = plugin.getConfigManager();
         Location sensorLoc = block.getLocation();
+
         double distance = sensorLoc.distance(voiceLoc);
+        double maxRange = config.getSculkMaxRange();
+        double minRange = config.getSculkMinRange();
+        double falloffCurve = config.getSculkFalloffCurve();
 
         // Check if sensor is within range
-        if (distance > range) {
+        if (distance > maxRange) {
             return;
         }
 
@@ -167,27 +122,9 @@ public class SculkListener implements Listener {
             return;
         }
 
-        // Calculate effective volume using VolumeCalculator
-        double effectiveVolume = VolumeCalculator.calculateSculkEffectiveVolume(volume, distance);
-
-        // Debug logging
-        if (plugin.getConfig().getBoolean("debug.sculk-logging", false)) {
-            plugin.getLogger().info(String.format(
-                    "Sculk: %s | %s",
-                    block.getType(),
-                    VolumeCalculator.getAttenuationDebugInfo(volume, distance)
-            ));
-        }
-
-        if (effectiveVolume < MIN_EFFECTIVE_VOLUME) {
-            return;
-        }
-
         // Calculate activation probability
-        double activationChance = VolumeCalculator.calculateSculkDetectionChance(
-                effectiveVolume,
-                distance,
-                range
+        double activationChance = RangeCalculator.calculateDetectionChance(
+                distance, minRange, maxRange, falloffCurve
         );
 
         // Probabilistic activation
@@ -196,17 +133,23 @@ public class SculkListener implements Listener {
         }
 
         // Trigger the Sculk Sensor using NMS
-        triggerSculkSensor(block, player, volume);
+        triggerSculkSensor(block, player);
 
         // Record trigger time
         lastTriggerTime.put(sensorLoc, System.currentTimeMillis());
+
+        // Debug logging
+        if (plugin.getConfig().getBoolean("debug.sculk-logging", false)) {
+            plugin.getLogger().info(String.format(
+                    "Sculk %s activated | %s",
+                    block.getType(),
+                    RangeCalculator.getDebugInfo(distance, minRange, maxRange, falloffCurve)
+            ));
+        }
     }
 
     /**
      * Checks if a sensor is currently on cooldown.
-     *
-     * @param sensorLoc the sensor location
-     * @return true if the sensor is on cooldown
      */
     private boolean isOnCooldown(Location sensorLoc) {
         Long lastTrigger = lastTriggerTime.get(sensorLoc);
@@ -215,52 +158,27 @@ public class SculkListener implements Listener {
         }
 
         long currentTime = System.currentTimeMillis();
-        return (currentTime - lastTrigger) < COOLDOWN_MILLIS;
+        long cooldown = plugin.getConfigManager().getSculkCooldown();
+        return (currentTime - lastTrigger) < cooldown;
     }
 
     /**
-     * Triggers a Sculk Sensor using Minecraft's native game event system.
-     *
-     * @param block the Sculk Sensor block
-     * @param player the player causing the event
-     * @param volume the voice volume
+     * Triggers a Sculk Sensor using Paper's native API.
      */
-    private void triggerSculkSensor(Block block, Player player, double volume) {
-        // Get NMS level (world)
-        net.minecraft.server.level.WorldServer level =
-                ((CraftWorld) block.getWorld()).getHandle();
-
-        // Get block position
-        BlockPosition pos = new BlockPosition(
-                block.getX(),
-                block.getY(),
-                block.getZ()
+    private void triggerSculkSensor(Block block, Player player) {
+        block.getWorld().sendGameEvent(
+                player,
+                org.bukkit.GameEvent.STEP,
+                block.getLocation().add(0.5, 0.5, 0.5).toVector()
         );
-
-        // Get NMS player
-        EntityPlayer nmsPlayer = ((CraftPlayer) player).getHandle();
-
-        // Trigger game event (STEP event is detected by all Sculk Sensors)
-        net.minecraft.core.Holder<GameEvent> gameEventHolder = GameEvent.P; // STEP event
-        level.a(nmsPlayer, gameEventHolder, pos);
-
-        // Debug logging
-        if (plugin.getConfig().getBoolean("debug.sculk-logging", false) && volume > 0.5) {
-            plugin.getLogger().fine(String.format(
-                    "Sculk Sensor activated at %s by loud voice (%.2f)",
-                    block.getLocation(), volume
-            ));
-        }
     }
 
     /**
      * Cleans up old cooldown entries to prevent memory leaks.
-     *
-     * <p>Removes entries older than 10x the cooldown duration.
      */
     private void cleanupOldTriggers() {
         long currentTime = System.currentTimeMillis();
-        long maxAge = COOLDOWN_MILLIS * CLEANUP_MULTIPLIER;
+        long maxAge = plugin.getConfigManager().getSculkCooldown() * 10;
 
         lastTriggerTime.entrySet().removeIf(entry ->
                 (currentTime - entry.getValue()) > maxAge

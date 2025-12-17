@@ -6,8 +6,6 @@ import de.maxhenkel.voicechat.api.events.EventRegistration;
 import de.maxhenkel.voicechat.api.events.MicrophonePacketEvent;
 import de.tecca.simplevoicemechanics.SimpleVoiceMechanics;
 import de.tecca.simplevoicemechanics.event.VoiceDetectedEvent;
-import de.tecca.simplevoicemechanics.manager.ConfigManager;
-import de.tecca.simplevoicemechanics.util.VolumeCalculator;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -19,13 +17,14 @@ import org.bukkit.entity.Player;
  * <ul>
  *   <li>Registers with SimpleVoiceChat API</li>
  *   <li>Processes microphone packets in real-time</li>
- *   <li>Calculates voice volume using VolumeCalculator</li>
- *   <li>Fires VoiceDetectedEvent for volumes above threshold</li>
+ *   <li>Fires VoiceDetectedEvent when player speaks</li>
  * </ul>
+ *
+ * <p>Note: Volume detection is not possible with the SimpleVoiceChat API.
+ * Detection is purely range-based.
  *
  * @author Tecca
  * @version 1.0.0
- * @since 1.0.0
  */
 public class VoiceHandler implements VoicechatPlugin {
 
@@ -35,40 +34,20 @@ public class VoiceHandler implements VoicechatPlugin {
     private final SimpleVoiceMechanics plugin;
     private VoicechatApi voicechatApi;
 
-    /**
-     * Constructs a new VoiceHandler.
-     *
-     * @param plugin the plugin instance
-     */
     public VoiceHandler(SimpleVoiceMechanics plugin) {
         this.plugin = plugin;
     }
 
-    /**
-     * Gets the plugin ID for SimpleVoiceChat registration.
-     *
-     * @return the plugin ID
-     */
     @Override
     public String getPluginId() {
         return PLUGIN_ID;
     }
 
-    /**
-     * Called when SimpleVoiceChat API is initialized.
-     *
-     * @param api the VoiceChat API instance
-     */
     @Override
     public void initialize(VoicechatApi api) {
         this.voicechatApi = api;
     }
 
-    /**
-     * Registers event listeners with SimpleVoiceChat.
-     *
-     * @param registration the event registration handler
-     */
     @Override
     public void registerEvents(EventRegistration registration) {
         registration.registerEvent(MicrophonePacketEvent.class, this::onMicrophonePacket);
@@ -77,8 +56,8 @@ public class VoiceHandler implements VoicechatPlugin {
     /**
      * Handles microphone packet events from SimpleVoiceChat.
      *
-     * <p>Processes audio data, calculates volume, and fires VoiceDetectedEvent
-     * if the volume exceeds the configured threshold.
+     * <p>Fires VoiceDetectedEvent whenever a player speaks.
+     * Volume information is not available from the API.
      *
      * @param event the microphone packet event
      */
@@ -90,40 +69,17 @@ public class VoiceHandler implements VoicechatPlugin {
         }
 
         Location playerLoc = player.getLocation();
-        ConfigManager config = plugin.getConfigManager();
-        double hearingRange = config.getHearingRange();
-
-        // Calculate audio volume using VolumeCalculator
-        byte[] audioData = event.getPacket().getOpusEncodedData();
-        float volume = VolumeCalculator.calculateRawVolume(audioData);
-
-        // Debug logging (optional)
-        if (plugin.getConfig().getBoolean("debug.volume-logging", false)) {
-            plugin.getLogger().info(VolumeCalculator.getVolumeDebugInfo(audioData));
-        }
-
-        // Check if volume exceeds threshold
-        if (volume < config.getVolumeThreshold()) {
-            return;
-        }
 
         // Fire VoiceDetectedEvent on main thread
         Bukkit.getScheduler().runTask(plugin, () -> {
             VoiceDetectedEvent voiceEvent = new VoiceDetectedEvent(
                     player,
-                    playerLoc,
-                    volume,
-                    hearingRange
+                    playerLoc
             );
             Bukkit.getPluginManager().callEvent(voiceEvent);
         });
     }
 
-    /**
-     * Gets the SimpleVoiceChat API instance.
-     *
-     * @return the VoiceChat API, or null if not initialized
-     */
     public VoicechatApi getVoicechatApi() {
         return voicechatApi;
     }

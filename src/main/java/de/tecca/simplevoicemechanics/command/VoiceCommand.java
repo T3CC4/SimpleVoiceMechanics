@@ -13,36 +13,21 @@ import org.bukkit.command.CommandSender;
  * <p>Provides commands for:
  * <ul>
  *   <li>Reloading configuration</li>
- *   <li>Toggling features (mobs, sculk)</li>
- *   <li>Viewing plugin status</li>
+ *   <li>Toggling features (hostile, neutral, peaceful, warden, sculk)</li>
+ *   <li>Viewing plugin status with ranges</li>
  * </ul>
  *
  * @author Tecca
  * @version 1.0.0
- * @since 1.0.0
  */
 public class VoiceCommand implements CommandExecutor {
 
     private final SimpleVoiceMechanics plugin;
 
-    /**
-     * Constructs a new VoiceCommand executor.
-     *
-     * @param plugin the plugin instance
-     */
     public VoiceCommand(SimpleVoiceMechanics plugin) {
         this.plugin = plugin;
     }
 
-    /**
-     * Executes the given command.
-     *
-     * @param sender the command sender
-     * @param command the command being executed
-     * @param label the alias used
-     * @param args the command arguments
-     * @return true if the command was handled successfully
-     */
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!sender.hasPermission("voicelistener.admin")) {
@@ -62,7 +47,7 @@ public class VoiceCommand implements CommandExecutor {
 
             case "toggle":
                 if (args.length < 2) {
-                    sender.sendMessage(ChatColor.RED + "Usage: /voicelistener toggle <mobs|sculk>");
+                    sender.sendMessage(ChatColor.RED + "Usage: /voicelistener toggle <hostile|neutral|peaceful|warden|sculk>");
                     return true;
                 }
                 handleToggle(sender, args[1]);
@@ -82,23 +67,20 @@ public class VoiceCommand implements CommandExecutor {
 
     /**
      * Sends the help message with all available commands.
-     *
-     * @param sender the command sender
      */
     private void sendHelp(CommandSender sender) {
-        sender.sendMessage(ChatColor.GOLD + "=== SimpleVoiceListener ===");
+        sender.sendMessage(ChatColor.GOLD + "=== SimpleVoiceMechanics ===");
         sender.sendMessage(ChatColor.YELLOW + "/voicelistener reload " +
                 ChatColor.GRAY + "- Reload configuration");
-        sender.sendMessage(ChatColor.YELLOW + "/voicelistener toggle <mobs|sculk> " +
-                ChatColor.GRAY + "- Toggle feature on/off");
+        sender.sendMessage(ChatColor.YELLOW + "/voicelistener toggle <category> " +
+                ChatColor.GRAY + "- Toggle mob category or sculk");
         sender.sendMessage(ChatColor.YELLOW + "/voicelistener status " +
                 ChatColor.GRAY + "- Display current status");
+        sender.sendMessage(ChatColor.GRAY + "Categories: hostile, neutral, peaceful, warden, sculk");
     }
 
     /**
      * Handles the reload command.
-     *
-     * @param sender the command sender
      */
     private void handleReload(CommandSender sender) {
         plugin.getConfigManager().reload();
@@ -107,83 +89,159 @@ public class VoiceCommand implements CommandExecutor {
 
     /**
      * Handles the toggle command for features.
-     *
-     * @param sender the command sender
-     * @param feature the feature to toggle (mobs or sculk)
      */
     private void handleToggle(CommandSender sender, String feature) {
         ConfigManager config = plugin.getConfigManager();
 
         switch (feature.toLowerCase()) {
-            case "mobs":
-                toggleMobHearing(sender, config);
+            case "hostile":
+                toggleCategory(sender, "Hostile Mobs",
+                        config.isHostileMobsEnabled(),
+                        "mob-hearing.hostile-mobs.enabled");
+                break;
+
+            case "neutral":
+                toggleCategory(sender, "Neutral Mobs",
+                        config.isNeutralMobsEnabled(),
+                        "mob-hearing.neutral-mobs.enabled");
+                break;
+
+            case "peaceful":
+                toggleCategory(sender, "Peaceful Mobs",
+                        config.isPeacefulMobsEnabled(),
+                        "mob-hearing.peaceful-mobs.enabled");
+                break;
+
+            case "warden":
+                toggleCategory(sender, "Warden",
+                        config.isWardenEnabled(),
+                        "mob-hearing.warden.enabled");
                 break;
 
             case "sculk":
-                toggleSculkHearing(sender, config);
+                boolean newSculkState = !config.isSculkEnabled();
+                config.setSculkHearingEnabled(newSculkState);
+                sender.sendMessage(ChatColor.GREEN + "Sculk Sensors: " +
+                        (newSculkState ? ChatColor.GREEN + "enabled" : ChatColor.RED + "disabled"));
                 break;
 
             default:
-                sender.sendMessage(ChatColor.RED + "Unknown feature: " + feature);
-                sender.sendMessage(ChatColor.GRAY + "Available: mobs, sculk");
+                sender.sendMessage(ChatColor.RED + "Unknown category: " + feature);
+                sender.sendMessage(ChatColor.GRAY + "Available: hostile, neutral, peaceful, warden, sculk");
                 break;
         }
     }
 
     /**
-     * Toggles mob hearing feature.
-     *
-     * @param sender the command sender
-     * @param config the configuration manager
+     * Toggles a mob category.
      */
-    private void toggleMobHearing(CommandSender sender, ConfigManager config) {
-        boolean newState = !config.isMobHearingEnabled();
-        config.setMobHearingEnabled(newState);
-        sender.sendMessage(ChatColor.GREEN + "Mob Hearing: " +
-                (newState ? ChatColor.GREEN + "enabled" : ChatColor.RED + "disabled"));
-    }
+    private void toggleCategory(CommandSender sender, String name, boolean currentState, String configPath) {
+        boolean newState = !currentState;
+        plugin.getConfig().set(configPath, newState);
+        plugin.saveConfig();
+        plugin.getConfigManager().reload();
 
-    /**
-     * Toggles sculk sensor hearing feature.
-     *
-     * @param sender the command sender
-     * @param config the configuration manager
-     */
-    private void toggleSculkHearing(CommandSender sender, ConfigManager config) {
-        boolean newState = !config.isSculkHearingEnabled();
-        config.setSculkHearingEnabled(newState);
-        sender.sendMessage(ChatColor.GREEN + "Sculk Hearing: " +
+        sender.sendMessage(ChatColor.GREEN + name + ": " +
                 (newState ? ChatColor.GREEN + "enabled" : ChatColor.RED + "disabled"));
     }
 
     /**
      * Handles the status command, displaying current plugin configuration.
-     *
-     * @param sender the command sender
      */
     private void handleStatus(CommandSender sender) {
         ConfigManager config = plugin.getConfigManager();
 
-        sender.sendMessage(ChatColor.GOLD + "=== Status ===");
-        sender.sendMessage(formatStatus("Mob Hearing", config.isMobHearingEnabled()));
-        sender.sendMessage(formatStatus("  Hostile Mobs", config.isHostileMobHearingEnabled()));
-        sender.sendMessage(formatStatus("  Warden", config.isWardenHearingEnabled()));
-        sender.sendMessage(formatStatus("Sculk Hearing", config.isSculkHearingEnabled()));
-        sender.sendMessage(ChatColor.YELLOW + "Range: " +
-                ChatColor.WHITE + config.getHearingRange() + " blocks");
-        sender.sendMessage(ChatColor.YELLOW + "Volume Threshold: " +
-                ChatColor.WHITE + config.getVolumeThreshold());
+        sender.sendMessage(ChatColor.GOLD + "=== SimpleVoiceMechanics Status ===");
+        sender.sendMessage("");
+
+        // Global settings
+        sender.sendMessage(ChatColor.YELLOW + "Global Detection:");
+        sender.sendMessage(formatRange("  Range",
+                config.getDefaultMinRange(), config.getDefaultMaxRange()));
+        sender.sendMessage(formatValue("  Falloff Curve", config.getDefaultFalloffCurve()));
+        sender.sendMessage("");
+
+        // Mob categories
+        sender.sendMessage(ChatColor.YELLOW + "Mob Hearing: " +
+                formatEnabled(config.isMobHearingEnabled()));
+
+        if (config.isMobHearingEnabled()) {
+            sender.sendMessage(formatCategory("  Hostile Mobs",
+                    config.isHostileMobsEnabled(),
+                    config.getHostileMinRange(),
+                    config.getHostileMaxRange(),
+                    config.getHostileFalloffCurve()));
+
+            sender.sendMessage(formatCategory("  Neutral Mobs",
+                    config.isNeutralMobsEnabled(),
+                    config.getNeutralMinRange(),
+                    config.getNeutralMaxRange(),
+                    config.getNeutralFalloffCurve()));
+
+            sender.sendMessage(formatCategory("  Peaceful Mobs",
+                    config.isPeacefulMobsEnabled(),
+                    config.getPeacefulMinRange(),
+                    config.getPeacefulMaxRange(),
+                    config.getPeacefulFalloffCurve()));
+
+            if (config.isPeacefulMobsEnabled() && config.isFollowWhenSneakingEnabled()) {
+                sender.sendMessage(ChatColor.GRAY + "    → Follow when sneaking: " +
+                        ChatColor.WHITE + config.getFollowDuration() + "s (" +
+                        config.getFollowMaxDistance() + " blocks)");
+            }
+
+            sender.sendMessage(formatCategory("  Warden",
+                    config.isWardenEnabled(),
+                    config.getWardenMinRange(),
+                    config.getWardenMaxRange(),
+                    config.getWardenFalloffCurve()));
+        }
+
+        sender.sendMessage("");
+
+        // Sculk sensors
+        sender.sendMessage(formatCategory("Sculk Sensors",
+                config.isSculkEnabled(),
+                config.getSculkMinRange(),
+                config.getSculkMaxRange(),
+                config.getSculkFalloffCurve()));
+
+        if (config.isSculkEnabled()) {
+            sender.sendMessage(ChatColor.GRAY + "  Cooldown: " +
+                    ChatColor.WHITE + config.getSculkCooldown() + "ms");
+        }
     }
 
     /**
      * Formats a status line with enabled/disabled indicator.
-     *
-     * @param name the feature name
-     * @param enabled whether the feature is enabled
-     * @return formatted status string
      */
-    private String formatStatus(String name, boolean enabled) {
-        return ChatColor.YELLOW + name + ": " +
-                (enabled ? ChatColor.GREEN + "✓" : ChatColor.RED + "✗");
+    private String formatEnabled(boolean enabled) {
+        return enabled ? ChatColor.GREEN + "✓ Enabled" : ChatColor.RED + "✗ Disabled";
+    }
+
+    /**
+     * Formats a category status line.
+     */
+    private String formatCategory(String name, boolean enabled, double minRange,
+                                  double maxRange, double falloff) {
+        String status = enabled ? ChatColor.GREEN + "✓" : ChatColor.RED + "✗";
+        String range = String.format("%.1f-%.1f blocks (curve: %.1f)", minRange, maxRange, falloff);
+        return status + " " + ChatColor.YELLOW + name + ChatColor.GRAY + ": " +
+                ChatColor.WHITE + (enabled ? range : "disabled");
+    }
+
+    /**
+     * Formats a range display.
+     */
+    private String formatRange(String name, double min, double max) {
+        return ChatColor.GRAY + name + ": " + ChatColor.WHITE +
+                String.format("%.1f-%.1f blocks", min, max);
+    }
+
+    /**
+     * Formats a single value display.
+     */
+    private String formatValue(String name, double value) {
+        return ChatColor.GRAY + name + ": " + ChatColor.WHITE + String.format("%.1f", value);
     }
 }
