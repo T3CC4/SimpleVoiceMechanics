@@ -23,7 +23,7 @@ import java.util.Map;
  * If GameEvent API is not available, this listener will be disabled.
  *
  * @author Tecca
- * @version 1.0.0
+ * @version 1.2.0
  */
 public class SculkListener implements Listener {
 
@@ -75,10 +75,18 @@ public class SculkListener implements Listener {
             return;
         }
 
+        double decibels = event.getDecibels();
+
+        // Check Sculk threshold BEFORE processing sensors
+        // This prevents Step event from firing if too quiet
+        if (decibels < plugin.getConfigManager().getSculkVolumeThresholdDb()) {
+            return;
+        }
+
         Location loc = event.getLocation();
 
         // Search for and activate nearby Sculk Sensors
-        processSculkSensors(player, loc);
+        processSculkSensors(player, loc, decibels);
 
         // Clean up old cooldown entries
         cleanupOldTriggers();
@@ -95,11 +103,15 @@ public class SculkListener implements Listener {
     /**
      * Processes all Sculk Sensors within range.
      */
-    private void processSculkSensors(Player player, Location loc) {
+    private void processSculkSensors(Player player, Location loc, double decibels) {
         ConfigManager config = plugin.getConfigManager();
         double maxRange = config.getSculkMaxRange();
+        double volumeThresholdDb = config.getVolumeThresholdDb();
 
-        int searchRadius = (int) Math.ceil(maxRange);
+        // Calculate effective range based on volume
+        double effectiveMaxRange = RangeCalculator.calculateEffectiveRange(maxRange, decibels, volumeThresholdDb);
+
+        int searchRadius = (int) Math.ceil(effectiveMaxRange);
         Location playerLoc = player.getLocation();
 
         // Iterate through all blocks in range
@@ -109,7 +121,7 @@ public class SculkListener implements Listener {
                     Block block = playerLoc.clone().add(x, y, z).getBlock();
 
                     if (isSculkSensor(block)) {
-                        processSculkSensor(block, player, loc);
+                        processSculkSensor(block, player, loc, decibels);
                     }
                 }
             }
@@ -129,7 +141,7 @@ public class SculkListener implements Listener {
     /**
      * Processes a single Sculk Sensor for potential activation.
      */
-    private void processSculkSensor(Block block, Player player, Location voiceLoc) {
+    private void processSculkSensor(Block block, Player player, Location voiceLoc, double decibels) {
         ConfigManager config = plugin.getConfigManager();
         Location sensorLoc = block.getLocation();
 
@@ -137,9 +149,13 @@ public class SculkListener implements Listener {
         double maxRange = config.getSculkMaxRange();
         double minRange = config.getSculkMinRange();
         double falloffCurve = config.getSculkFalloffCurve();
+        double volumeThresholdDb = config.getVolumeThresholdDb();
 
-        // Check if sensor is within range
-        if (distance > maxRange) {
+        // Calculate effective range based on volume
+        double effectiveMaxRange = RangeCalculator.calculateEffectiveRange(maxRange, decibels, volumeThresholdDb);
+
+        // Check if sensor is within effective range
+        if (distance > effectiveMaxRange) {
             return;
         }
 
@@ -148,9 +164,9 @@ public class SculkListener implements Listener {
             return;
         }
 
-        // Calculate activation probability
-        double activationChance = RangeCalculator.calculateDetectionChance(
-                distance, minRange, maxRange, falloffCurve
+        // Calculate activation probability with dynamic range
+        double activationChance = RangeCalculator.calculateDynamicDetectionChance(
+                distance, minRange, maxRange, falloffCurve, decibels, volumeThresholdDb
         );
 
         // Probabilistic activation
@@ -169,7 +185,7 @@ public class SculkListener implements Listener {
             plugin.getLogger().info(String.format(
                     "Sculk %s activated | %s",
                     block.getType(),
-                    RangeCalculator.getDebugInfo(distance, minRange, maxRange, falloffCurve)
+                    RangeCalculator.getDynamicDebugInfo(distance, minRange, maxRange, falloffCurve, decibels, volumeThresholdDb)
             ));
         }
     }

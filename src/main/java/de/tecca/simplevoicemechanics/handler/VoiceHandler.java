@@ -4,8 +4,11 @@ import de.maxhenkel.voicechat.api.VoicechatApi;
 import de.maxhenkel.voicechat.api.VoicechatPlugin;
 import de.maxhenkel.voicechat.api.events.EventRegistration;
 import de.maxhenkel.voicechat.api.events.MicrophonePacketEvent;
+import de.maxhenkel.voicechat.api.opus.OpusDecoder;
 import de.tecca.simplevoicemechanics.SimpleVoiceMechanics;
 import de.tecca.simplevoicemechanics.event.VoiceDetectedEvent;
+import de.tecca.simplevoicemechanics.manager.ConfigManager;
+import de.tecca.simplevoicemechanics.util.AudioUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -16,15 +19,13 @@ import org.bukkit.entity.Player;
  * <p>This handler:
  * <ul>
  *   <li>Registers with SimpleVoiceChat API</li>
- *   <li>Processes microphone packets in real-time</li>
- *   <li>Fires VoiceDetectedEvent when player speaks</li>
+ *   <li>Decodes Opus audio packets in real-time</li>
+ *   <li>Calculates audio levels in decibels</li>
+ *   <li>Fires VoiceDetectedEvent for audio above threshold</li>
  * </ul>
  *
- * <p>Note: Volume detection is not possible with the SimpleVoiceChat API.
- * Detection is purely range-based.
- *
  * @author Tecca
- * @version 1.0.0
+ * @version 1.2.0
  */
 public class VoiceHandler implements VoicechatPlugin {
 
@@ -33,6 +34,7 @@ public class VoiceHandler implements VoicechatPlugin {
 
     private final SimpleVoiceMechanics plugin;
     private VoicechatApi voicechatApi;
+    private OpusDecoder decoder;
 
     public VoiceHandler(SimpleVoiceMechanics plugin) {
         this.plugin = plugin;
@@ -56,8 +58,9 @@ public class VoiceHandler implements VoicechatPlugin {
     /**
      * Handles microphone packet events from SimpleVoiceChat.
      *
-     * <p>Fires VoiceDetectedEvent whenever a player speaks.
-     * Volume information is not available from the API.
+     * <p>Decodes Opus audio, calculates decibel level, and fires
+     * VoiceDetectedEvent with the audio level. Each listener then
+     * checks against their own threshold.
      *
      * @param event the microphone packet event
      */
@@ -68,13 +71,37 @@ public class VoiceHandler implements VoicechatPlugin {
             return;
         }
 
-        Location playerLoc = player.getLocation();
+        // Get audio data
+        byte[] opusData = event.getPacket().getOpusEncodedData();
+        if (opusData.length == 0) {
+            return; // Empty packet (player stopped talking)
+        }
+
+        // Initialize decoder if needed
+        if (decoder == null) {
+            decoder = event.getVoicechat().createDecoder();
+        }
+
+        // Decode Opus to PCM samples
+        decoder.resetState();
+        short[] samples = decoder.decode(opusData);
+
+        // Calculate audio level in decibels
+        double db = AudioUtils.calculateAudioLevel(samples);
+
+        // Debug logging
+        if (plugin.getConfig().getBoolean("debug.audio-logging", false)) {
+            plugin.getLogger().info(AudioUtils.getDebugInfo(samples));
+        }
 
         // Fire VoiceDetectedEvent on main thread
+        // Listeners will check their own thresholds
+        Location playerLoc = player.getLocation();
         Bukkit.getScheduler().runTask(plugin, () -> {
             VoiceDetectedEvent voiceEvent = new VoiceDetectedEvent(
                     player,
-                    playerLoc
+                    playerLoc,
+                    db
             );
             Bukkit.getPluginManager().callEvent(voiceEvent);
         });

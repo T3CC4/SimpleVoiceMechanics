@@ -8,10 +8,11 @@ package de.tecca.simplevoicemechanics.util;
  *   <li>Distance between player and entity</li>
  *   <li>Configured max-range and min-range</li>
  *   <li>Falloff curve (how detection chance decreases with distance)</li>
+ *   <li>Audio level in decibels (dynamic range scaling)</li>
  * </ul>
  *
  * @author Tecca
- * @version 1.0.0
+ * @version 1.2.0
  */
 public class RangeCalculator {
 
@@ -20,6 +21,44 @@ public class RangeCalculator {
      */
     private RangeCalculator() {
         throw new AssertionError("Utility class cannot be instantiated");
+    }
+
+    /**
+     * Calculates effective detection range based on audio level.
+     *
+     * <p>Louder voices are heard from further away:
+     * <ul>
+     *   <li>-60 dB (whisper): ~50% of configured range</li>
+     *   <li>-40 dB (normal): ~100% of configured range</li>
+     *   <li>-20 dB (loud): ~150% of configured range</li>
+     *   <li>0 dB (shout): ~200% of configured range</li>
+     * </ul>
+     *
+     * @param configuredRange the base range from config
+     * @param decibels the audio level in decibels (-127 to 0)
+     * @param volumeThresholdDb the minimum volume threshold
+     * @return effective range in blocks
+     */
+    public static double calculateEffectiveRange(double configuredRange, double decibels,
+                                                 double volumeThresholdDb) {
+        // Normalize dB relative to threshold
+        // At threshold: multiplier = 1.0
+        // Above threshold: multiplier increases
+        double dbAboveThreshold = decibels - volumeThresholdDb;
+
+        // Each 10 dB above threshold increases range by ~40%
+        // Formula: multiplier = 1.0 + (dbAboveThreshold / 25.0)
+        // Examples:
+        //   At threshold (0 dB above): 1.0x range
+        //   +10 dB: 1.4x range
+        //   +20 dB: 1.8x range
+        //   +30 dB: 2.2x range
+        double multiplier = Math.max(0.5, 1.0 + (dbAboveThreshold / 25.0));
+
+        // Cap maximum multiplier at 2.5x
+        multiplier = Math.min(multiplier, 2.5);
+
+        return configuredRange * multiplier;
     }
 
     /**
@@ -69,41 +108,81 @@ public class RangeCalculator {
     }
 
     /**
-     * Calculates Warden anger based on distance.
+     * Calculates detection chance with dynamic range based on audio level.
      *
-     * <p>Anger scales inversely with distance:
+     * <p>Combines audio level and distance for realistic detection:
+     * <ol>
+     *   <li>Calculate effective range based on audio level</li>
+     *   <li>Scale min/max ranges proportionally</li>
+     *   <li>Apply standard detection chance calculation</li>
+     * </ol>
+     *
+     * @param distance the distance in blocks
+     * @param configuredMinRange the configured minimum range
+     * @param configuredMaxRange the configured maximum range
+     * @param falloffCurve the falloff curve exponent
+     * @param decibels the audio level in decibels
+     * @param volumeThresholdDb the minimum volume threshold
+     * @return detection chance (0.0 - 1.0)
+     */
+    public static double calculateDynamicDetectionChance(double distance, double configuredMinRange,
+                                                         double configuredMaxRange, double falloffCurve,
+                                                         double decibels, double volumeThresholdDb) {
+        // Calculate range multiplier based on volume
+        double effectiveMaxRange = calculateEffectiveRange(configuredMaxRange, decibels, volumeThresholdDb);
+        double effectiveMinRange = calculateEffectiveRange(configuredMinRange, decibels, volumeThresholdDb);
+
+        // Use effective ranges for detection
+        return calculateDetectionChance(distance, effectiveMinRange, effectiveMaxRange, falloffCurve);
+    }
+
+    /**
+     * Calculates Warden anger based on distance and audio level.
+     *
+     * <p>Anger scales with both proximity and volume:
      * <ul>
-     *   <li>Close (0-3 blocks): 50-60 anger</li>
-     *   <li>Medium (3-12 blocks): 30-50 anger</li>
-     *   <li>Far (12-24 blocks): 15-30 anger</li>
+     *   <li>Close + Loud: 50-60 anger</li>
+     *   <li>Medium + Normal: 30-50 anger</li>
+     *   <li>Far + Quiet: 15-30 anger</li>
      * </ul>
      *
      * @param distance the distance in blocks
      * @param minRange the minimum range
      * @param maxRange the maximum range
+     * @param decibels the audio level in decibels
+     * @param volumeThresholdDb the volume threshold
      * @return anger increase amount
      */
-    public static int calculateWardenAnger(double distance, double minRange, double maxRange) {
+    public static int calculateWardenAnger(double distance, double minRange, double maxRange,
+                                           double decibels, double volumeThresholdDb) {
         // Base anger values
         int minAnger = 15;
         int maxAnger = 60;
+
+        // Calculate effective range for volume
+        double effectiveMaxRange = calculateEffectiveRange(maxRange, decibels, volumeThresholdDb);
 
         // Within min range: maximum anger
         if (distance <= minRange) {
             return maxAnger;
         }
 
-        // Beyond max range: minimum anger
-        if (distance >= maxRange) {
+        // Beyond effective max range: minimum anger
+        if (distance >= effectiveMaxRange) {
             return minAnger;
         }
 
         // Calculate anger based on distance (closer = more angry)
-        double normalizedDistance = (distance - minRange) / (maxRange - minRange);
+        double normalizedDistance = (distance - minRange) / (effectiveMaxRange - minRange);
         double angerFactor = 1.0 - normalizedDistance;
 
         // Non-linear scaling (closer distances = disproportionately more anger)
         angerFactor = Math.pow(angerFactor, 1.5);
+
+        // Volume bonus: louder = more angry
+        double volumeFactor = (decibels - volumeThresholdDb) / 40.0; // Normalized to ~0-1
+        volumeFactor = Math.max(0.0, Math.min(1.0, volumeFactor));
+        angerFactor = angerFactor * (0.7 + 0.3 * volumeFactor); // 70-100% based on volume
 
         int anger = (int) (minAnger + (maxAnger - minAnger) * angerFactor);
         return Math.max(minAnger, Math.min(maxAnger, anger));
@@ -134,6 +213,31 @@ public class RangeCalculator {
         return String.format(
                 "Dist: %.1f | Zone: %s | Chance: %.1f%% | Curve: %.1f",
                 distance, rangeZone, chance * 100, falloffCurve
+        );
+    }
+
+    /**
+     * Gets debug information with dynamic range.
+     *
+     * @param distance the distance
+     * @param configuredMinRange the configured min range
+     * @param configuredMaxRange the configured max range
+     * @param falloffCurve the falloff curve
+     * @param decibels the audio level
+     * @param volumeThresholdDb the volume threshold
+     * @return formatted debug string
+     */
+    public static String getDynamicDebugInfo(double distance, double configuredMinRange,
+                                             double configuredMaxRange, double falloffCurve,
+                                             double decibels, double volumeThresholdDb) {
+        double effectiveMax = calculateEffectiveRange(configuredMaxRange, decibels, volumeThresholdDb);
+        double effectiveMin = calculateEffectiveRange(configuredMinRange, decibels, volumeThresholdDb);
+        double chance = calculateDynamicDetectionChance(distance, configuredMinRange, configuredMaxRange,
+                falloffCurve, decibels, volumeThresholdDb);
+
+        return String.format(
+                "Dist: %.1f | dB: %.1f | Range: %.1f-%.1f | Chance: %.1f%%",
+                distance, decibels, effectiveMin, effectiveMax, chance * 100
         );
     }
 

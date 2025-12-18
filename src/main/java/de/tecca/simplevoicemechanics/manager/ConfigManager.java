@@ -16,12 +16,13 @@ import java.util.Set;
  * <ul>
  *   <li>Global detection settings (max-range, min-range, falloff-curve)</li>
  *   <li>Per-category overrides (hostile, neutral, peaceful, warden, sculk)</li>
+ *   <li>Per-category volume thresholds in decibels</li>
  *   <li>Mob blacklists</li>
  *   <li>Peaceful mob behaviors (look-at, follow-when-sneaking)</li>
  * </ul>
  *
  * @author Tecca
- * @version 1.0.0
+ * @version 1.2.0
  */
 public class ConfigManager {
 
@@ -46,6 +47,7 @@ public class ConfigManager {
     private Double hostileMaxRange;
     private Double hostileMinRange;
     private Double hostileFalloffCurve;
+    private double hostileVolumeThresholdDb;
     private Set<EntityType> hostileBlacklist;
 
     // Neutral mobs
@@ -54,6 +56,10 @@ public class ConfigManager {
     private Double neutralMaxRange;
     private Double neutralMinRange;
     private Double neutralFalloffCurve;
+    private double neutralVolumeThresholdDb;
+    private double neutralReactionChance;
+    private int neutralLookDuration;
+    private int neutralReactionCooldown;
     private Set<EntityType> neutralBlacklist;
 
     // Peaceful mobs
@@ -62,8 +68,21 @@ public class ConfigManager {
     private Double peacefulMaxRange;
     private Double peacefulMinRange;
     private Double peacefulFalloffCurve;
+    private double peacefulVolumeThresholdDb;
+    private double peacefulReactionChance;
+    private int peacefulLookDuration;
+    private int peacefulReactionCooldown;
     private Set<EntityType> peacefulBlacklist;
+    // Flee behavior
+    private boolean fleeEnabled;
+    private double fleeVolumeDb;
+    private double fleeDistance;
+    private int fleeDuration;
+    // Follow behavior
     private boolean followWhenSneakingEnabled;
+    private boolean requireEyeContact;
+    private double eyeContactRange;
+    private int eyeContactMemory;
     private int followDuration;
     private double followMaxDistance;
 
@@ -72,12 +91,14 @@ public class ConfigManager {
     private Double wardenMaxRange;
     private Double wardenMinRange;
     private Double wardenFalloffCurve;
+    private double wardenVolumeThresholdDb;
 
     // Sculk sensors
     private boolean sculkEnabled;
     private Double sculkMaxRange;
     private Double sculkMinRange;
     private Double sculkFalloffCurve;
+    private double sculkVolumeThresholdDb;
     private long sculkCooldown;
 
     public ConfigManager(SimpleVoiceMechanics plugin) {
@@ -130,9 +151,9 @@ public class ConfigManager {
      */
     private void loadHostileMobSettings() {
         String path = PATH_MOB_HEARING + ".hostile-mobs";
-        ConfigurationSection section = config.getConfigurationSection(path);
 
         hostileMobsEnabled = config.getBoolean(path + ".enabled", true);
+        hostileVolumeThresholdDb = config.getDouble(path + ".volume-threshold-db", -40.0);
         hostileMaxRange = getOptionalDouble(path + ".max-range");
         hostileMinRange = getOptionalDouble(path + ".min-range");
         hostileFalloffCurve = getOptionalDouble(path + ".falloff-curve");
@@ -147,6 +168,10 @@ public class ConfigManager {
 
         neutralMobsEnabled = config.getBoolean(path + ".enabled", true);
         neutralLookAtPlayer = config.getBoolean(path + ".look-at-player", true);
+        neutralVolumeThresholdDb = config.getDouble(path + ".volume-threshold-db", -35.0);
+        neutralReactionChance = config.getDouble(path + ".natural-behavior.reaction-chance", 0.6);
+        neutralLookDuration = config.getInt(path + ".natural-behavior.look-duration", 8);
+        neutralReactionCooldown = config.getInt(path + ".natural-behavior.reaction-cooldown", 3);
         neutralMaxRange = getOptionalDouble(path + ".max-range");
         neutralMinRange = getOptionalDouble(path + ".min-range");
         neutralFalloffCurve = getOptionalDouble(path + ".falloff-curve");
@@ -161,15 +186,29 @@ public class ConfigManager {
 
         peacefulMobsEnabled = config.getBoolean(path + ".enabled", true);
         peacefulLookAtPlayer = config.getBoolean(path + ".look-at-player", true);
+        peacefulVolumeThresholdDb = config.getDouble(path + ".volume-threshold-db", -30.0);
+        peacefulReactionChance = config.getDouble(path + ".natural-behavior.reaction-chance", 0.7);
+        peacefulLookDuration = config.getInt(path + ".natural-behavior.look-duration", 10);
+        peacefulReactionCooldown = config.getInt(path + ".natural-behavior.reaction-cooldown", 3);
         peacefulMaxRange = getOptionalDouble(path + ".max-range");
         peacefulMinRange = getOptionalDouble(path + ".min-range");
         peacefulFalloffCurve = getOptionalDouble(path + ".falloff-curve");
         peacefulBlacklist = loadBlacklist(path + ".blacklist");
 
-        // Follow when sneaking
+        // Flee behavior (all in seconds from config)
+        String fleePath = path + ".flee-behavior";
+        fleeEnabled = config.getBoolean(fleePath + ".enabled", true);
+        fleeVolumeDb = config.getDouble(fleePath + ".flee-volume-db", -20.0);
+        fleeDistance = config.getDouble(fleePath + ".flee-distance", 3.0);
+        fleeDuration = config.getInt(fleePath + ".flee-duration", 3);  // seconds
+
+        // Follow when sneaking (all in seconds from config)
         String followPath = path + ".follow-when-sneaking";
         followWhenSneakingEnabled = config.getBoolean(followPath + ".enabled", true);
-        followDuration = config.getInt(followPath + ".duration", 60);
+        requireEyeContact = config.getBoolean(followPath + ".require-eye-contact", true);
+        eyeContactRange = config.getDouble(followPath + ".eye-contact-range", 4.0);
+        eyeContactMemory = config.getInt(followPath + ".eye-contact-memory", 5);  // seconds
+        followDuration = config.getInt(followPath + ".duration", 60);  // seconds
         followMaxDistance = config.getDouble(followPath + ".max-distance", 12.0);
     }
 
@@ -180,6 +219,7 @@ public class ConfigManager {
         String path = PATH_MOB_HEARING + ".warden";
 
         wardenEnabled = config.getBoolean(path + ".enabled", true);
+        wardenVolumeThresholdDb = config.getDouble(path + ".volume-threshold-db", -50.0);
         wardenMaxRange = getOptionalDouble(path + ".max-range");
         wardenMinRange = getOptionalDouble(path + ".min-range");
         wardenFalloffCurve = getOptionalDouble(path + ".falloff-curve");
@@ -190,6 +230,7 @@ public class ConfigManager {
      */
     private void loadSculkSettings() {
         sculkEnabled = config.getBoolean(PATH_SCULK + ".enabled", true);
+        sculkVolumeThresholdDb = config.getDouble(PATH_SCULK + ".volume-threshold-db", -45.0);
         sculkMaxRange = getOptionalDouble(PATH_SCULK + ".max-range");
         sculkMinRange = getOptionalDouble(PATH_SCULK + ".min-range");
         sculkFalloffCurve = getOptionalDouble(PATH_SCULK + ".falloff-curve");
@@ -248,6 +289,7 @@ public class ConfigManager {
     public double getHostileMaxRange() { return hostileMaxRange != null ? hostileMaxRange : defaultMaxRange; }
     public double getHostileMinRange() { return hostileMinRange != null ? hostileMinRange : defaultMinRange; }
     public double getHostileFalloffCurve() { return hostileFalloffCurve != null ? hostileFalloffCurve : defaultFalloffCurve; }
+    public double getHostileVolumeThresholdDb() { return hostileVolumeThresholdDb; }
     public boolean isHostileBlacklisted(EntityType type) { return hostileBlacklist.contains(type); }
 
     // Neutral mobs
@@ -256,6 +298,10 @@ public class ConfigManager {
     public double getNeutralMaxRange() { return neutralMaxRange != null ? neutralMaxRange : defaultMaxRange; }
     public double getNeutralMinRange() { return neutralMinRange != null ? neutralMinRange : defaultMinRange; }
     public double getNeutralFalloffCurve() { return neutralFalloffCurve != null ? neutralFalloffCurve : defaultFalloffCurve; }
+    public double getNeutralVolumeThresholdDb() { return neutralVolumeThresholdDb; }
+    public double getNeutralReactionChance() { return neutralReactionChance; }
+    public int getNeutralLookDurationTicks() { return neutralLookDuration * 20; }  // seconds to ticks
+    public long getNeutralReactionCooldownMs() { return neutralReactionCooldown * 1000L; }  // seconds to ms
     public boolean isNeutralBlacklisted(EntityType type) { return neutralBlacklist.contains(type); }
 
     // Peaceful mobs
@@ -264,9 +310,22 @@ public class ConfigManager {
     public double getPeacefulMaxRange() { return peacefulMaxRange != null ? peacefulMaxRange : defaultMaxRange; }
     public double getPeacefulMinRange() { return peacefulMinRange != null ? peacefulMinRange : defaultMinRange; }
     public double getPeacefulFalloffCurve() { return peacefulFalloffCurve != null ? peacefulFalloffCurve : defaultFalloffCurve; }
+    public double getPeacefulVolumeThresholdDb() { return peacefulVolumeThresholdDb; }
+    public double getPeacefulReactionChance() { return peacefulReactionChance; }
+    public int getPeacefulLookDurationTicks() { return peacefulLookDuration * 20; }  // seconds to ticks
+    public long getPeacefulReactionCooldownMs() { return peacefulReactionCooldown * 1000L; }  // seconds to ms
     public boolean isPeacefulBlacklisted(EntityType type) { return peacefulBlacklist.contains(type); }
+    // Flee behavior
+    public boolean isFleeEnabled() { return fleeEnabled; }
+    public double getFleeVolumeDb() { return fleeVolumeDb; }
+    public double getFleeDistance() { return fleeDistance; }
+    public int getFleeDurationTicks() { return fleeDuration * 20; }  // seconds to ticks
+    // Follow behavior
     public boolean isFollowWhenSneakingEnabled() { return followWhenSneakingEnabled; }
-    public int getFollowDuration() { return followDuration; }
+    public boolean requiresEyeContact() { return requireEyeContact; }
+    public double getEyeContactRange() { return eyeContactRange; }
+    public long getEyeContactMemoryMs() { return eyeContactMemory * 1000L; }  // seconds to ms
+    public int getFollowDuration() { return followDuration; }  // already in seconds
     public double getFollowMaxDistance() { return followMaxDistance; }
 
     // Warden
@@ -274,12 +333,14 @@ public class ConfigManager {
     public double getWardenMaxRange() { return wardenMaxRange != null ? wardenMaxRange : defaultMaxRange; }
     public double getWardenMinRange() { return wardenMinRange != null ? wardenMinRange : defaultMinRange; }
     public double getWardenFalloffCurve() { return wardenFalloffCurve != null ? wardenFalloffCurve : defaultFalloffCurve; }
+    public double getWardenVolumeThresholdDb() { return wardenVolumeThresholdDb; }
 
     // Sculk
     public boolean isSculkEnabled() { return sculkEnabled; }
     public double getSculkMaxRange() { return sculkMaxRange != null ? sculkMaxRange : defaultMaxRange; }
     public double getSculkMinRange() { return sculkMinRange != null ? sculkMinRange : defaultMinRange; }
     public double getSculkFalloffCurve() { return sculkFalloffCurve != null ? sculkFalloffCurve : defaultFalloffCurve; }
+    public double getSculkVolumeThresholdDb() { return sculkVolumeThresholdDb; }
     public long getSculkCooldown() { return sculkCooldown; }
 
     // Legacy compatibility (deprecated)
@@ -295,6 +356,8 @@ public class ConfigManager {
     public float getVolumeThreshold() { return 0.0f; }  // No longer used
     @Deprecated
     public double getMinVolumeForDetection() { return 0.0; }  // No longer used
+    @Deprecated
+    public double getVolumeThresholdDb() { return hostileVolumeThresholdDb; }  // Use category-specific
 
     /**
      * Gets the raw FileConfiguration for debug settings.

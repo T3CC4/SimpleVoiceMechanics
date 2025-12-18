@@ -36,6 +36,11 @@ mob-hearing:
   # ---- Hostile Mobs (Attack on detection) ----
   hostile-mobs:
     enabled: true
+    # Volume threshold in decibels (dB)
+    # Only audio above this level will be detected by hostile mobs
+    # Range: -127 (silence) to 0 (maximum)
+    # Recommended: -40 (normal speaking)
+    volume-threshold-db: -40.0
     # Optional: Override for this category
     max-range: null  # null = uses detection.max-range
     min-range: null  # null = uses detection.min-range
@@ -49,6 +54,9 @@ mob-hearing:
   neutral-mobs:
     enabled: true
     look-at-player: true  # Look at the player
+    # Volume threshold for neutral mobs
+    # Recommended: -35 (slightly more sensitive than hostile)
+    volume-threshold-db: -35.0
     max-range: null
     min-range: null
     falloff-curve: null
@@ -59,32 +67,68 @@ mob-hearing:
   peaceful-mobs:
     enabled: true
     look-at-player: true
+    # Volume threshold for peaceful mobs
+    # Recommended: -30 (more sensitive, easily scared)
+    volume-threshold-db: -30.0
     max-range: 8.0  # Shorter range for peaceful mobs
     min-range: 1.5
     falloff-curve: 1.2
+    # Natural behavior settings
+    natural-behavior:
+      # Not all mobs react every time (more realistic)
+      # Chance that a mob will react to voice (0.0 - 1.0)
+      reaction-chance: 0.7  # 70% chance to react
+      # How long mob looks at player after reacting (seconds)
+      look-duration: 10  # 10 seconds
+      # Cooldown between reactions (seconds)
+      reaction-cooldown: 3  # 3 seconds
+    # Flee when frightened by loud noise
+    flee-behavior:
+      enabled: true
+      # Volume threshold for fleeing (louder than normal)
+      # Recommended: -20 (loud speaking/shouting)
+      flee-volume-db: -20.0
+      # Maximum distance to flee from player (blocks)
+      flee-distance: 3.0
+      # Duration of flee behavior (seconds)
+      flee-duration: 3  # 3 seconds
     # Sneaking + Talking = Mobs follow
     follow-when-sneaking:
       enabled: true
-      duration: 60  # Seconds
-      max-distance: 12.0  # Max follow distance
+      # Must look at mob first before it follows
+      require-eye-contact: true
+      # Eye contact detection range (blocks)
+      eye-contact-range: 4.0
+      # How long mob remembers eye contact (seconds)
+      eye-contact-memory: 5  # 5 seconds
+      # How long mob follows (seconds)
+      duration: 60  # 60 seconds
+      # Max follow distance (blocks)
+      max-distance: 12.0
     blacklist: []
 
   # ---- Warden (Special behavior) ----
   warden:
     enabled: true
+    # Volume threshold for Warden
+    # Recommended: -50 (very sensitive, hears everything)
+    volume-threshold-db: -20.0
     max-range: 24.0  # Warden hears further
     min-range: 3.0
     falloff-curve: 0.8  # Warden hears well even far away
-    # Anger scales with distance:
-    # Close (0-3 blocks): 50-60 Anger
-    # Medium (3-12 blocks): 30-50 Anger
-    # Far (12-24 blocks): 15-30 Anger
+    # Anger scales with distance and volume:
+    # Close + Loud: 50-60 Anger
+    # Medium + Normal: 30-50 Anger
+    # Far + Quiet: 15-30 Anger
 
 # ----------------------------------------
 # Sculk Sensor Detection
 # ----------------------------------------
 sculk-hearing:
   enabled: true
+  # Volume threshold for Sculk Sensors
+  # Recommended: -45 (sensitive, like vanilla sculk)
+  volume-threshold-db: -20.0
   max-range: 16.0  # Standard Sculk Sensor Range
   min-range: 2.0
   falloff-curve: 0.9  # Sculk Sensors are more sensitive
@@ -95,6 +139,8 @@ sculk-hearing:
 # Debug Options
 # ----------------------------------------
 debug:
+  # Shows audio level calculations (dB, normalized, category)
+  audio-logging: false
   # Shows range calculations
   range-logging: false
   # Shows mob reactions
@@ -107,35 +153,55 @@ debug:
   peaceful-logging: false
 
 # ----------------------------------------
-# Explanation: Range-Based System
+# Explanation: Hybrid Detection System
 # ----------------------------------------
 #
 # HOW IT WORKS:
-# 1. Player speaks → Voice Packet is detected
-# 2. System calculates distance to all entities within max-range
-# 3. Detection chance based on:
-#    - Distance between min-range and max-range
-#    - falloff-curve (how quickly does chance decrease?)
+# 1. Player speaks → Voice Packet is captured
+# 2. Opus audio is decoded to PCM samples
+# 3. Audio level is calculated in decibels (dB)
+# 4. If dB > volume-threshold-db → Event is fired
+# 5. Entities within max-range check detection probability
+# 6. Detection chance based on distance and falloff-curve
+#
+# DECIBEL (dB) SCALE:
+# -127 dB: Complete silence
+# -100 dB: Extremely quiet (background noise)
+# -60 dB: Quiet speaking/whisper
+# -40 dB: Normal speaking (default threshold)
+# -20 dB: Loud speaking
+# 0 dB: Maximum volume (shouting)
+#
+# VOLUME THRESHOLD EXAMPLES:
+# volume-threshold-db: -60
+#   → Very sensitive, detects whispers
+#   → Good for stealth servers
+#
+# volume-threshold-db: -40 (default)
+#   → Balanced, normal speaking required
+#   → Recommended for most servers
+#
+# volume-threshold-db: -20
+#   → Less sensitive, only loud speaking
+#   → Good for action-focused servers
+#
+# RANGE SYSTEM:
+# After volume check, distance-based detection:
+# - 0-2 blocks (min-range): 100% detection chance
+# - 2-16 blocks: Smooth falloff based on falloff-curve
+# - 16+ blocks (max-range): 0% detection chance
 #
 # EXAMPLE (default settings):
-# - 0-2 blocks: 100% detection chance
-# - 4 blocks: ~90% chance
-# - 8 blocks: ~60% chance
-# - 12 blocks: ~30% chance
-# - 16 blocks: ~10% chance
-# - 16+ blocks: 0% chance
+# Player speaks at -35 dB (normal volume):
+# - Passes threshold (-35 > -40) ✓
+# - At 4 blocks: ~90% chance
+# - At 8 blocks: ~60% chance
+# - At 12 blocks: ~30% chance
+# - At 16 blocks: ~10% chance
 #
-# FALLOFF-CURVE EFFECTS:
-# At 8 blocks distance:
-# - 0.5 (linear): 50% chance
-# - 1.0 (moderate): 60% chance
-# - 1.5 (strong): 75% chance
-# - 2.0 (very strong): 85% chance
-#
-# OVERRIDE SYSTEM:
-# - null = uses global detection settings
-# - number = overrides for this category
-# - Enables fine-tuned behavior per mob type
+# Player whispers at -50 dB:
+# - Fails threshold (-50 < -40) ✗
+# - No detection at any distance
 
 # ----------------------------------------
 # Tuning Guide

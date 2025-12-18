@@ -30,18 +30,27 @@ import java.util.UUID;
  * </ul>
  *
  * @author Tecca
- * @version 1.0.0
+ * @version 1.2.0
  */
 public class MobListener implements Listener {
 
     private static final String FOLLOW_META_KEY = "svm_following";
     private static final String FOLLOW_PLAYER_KEY = "svm_follow_player";
+    private static final String EYE_CONTACT_META_KEY = "svm_eye_contact";
+    private static final String EYE_CONTACT_TIME_KEY = "svm_eye_contact_time";
+    private static final String FLEE_META_KEY = "svm_fleeing";
 
     private final SimpleVoiceMechanics plugin;
 
     // Tracks which mobs are currently following which players
     private final Map<UUID, UUID> followingMobs = new HashMap<>();  // MobUUID -> PlayerUUID
     private final Map<UUID, Long> followStartTime = new HashMap<>();  // MobUUID -> StartTime
+
+    // Reaction cooldowns to prevent rapid re-triggering
+    private final Map<UUID, Long> reactionCooldowns = new HashMap<>();  // MobUUID -> LastReactionTime
+
+    // Look-at tracking for duration
+    private final Map<UUID, Long> lookAtStartTime = new HashMap<>();  // MobUUID -> StartTime
 
     public MobListener(SimpleVoiceMechanics plugin) {
         this.plugin = plugin;
@@ -65,10 +74,51 @@ public class MobListener implements Listener {
         }
 
         Location loc = event.getLocation();
+        double decibels = event.getDecibels();
         boolean isSneaking = player.isSneaking();
 
         // Process all nearby mobs
-        processNearbyMobs(player, loc, isSneaking);
+        processNearbyMobs(player, loc, isSneaking, decibels);
+    }
+
+    /**
+     * Checks if a mob is on reaction cooldown.
+     */
+    private boolean isOnReactionCooldown(Mob mob, long cooldownMs) {
+        Long lastReaction = reactionCooldowns.get(mob.getUniqueId());
+        if (lastReaction == null) {
+            return false;
+        }
+
+        long currentTime = System.currentTimeMillis();
+        return (currentTime - lastReaction) < cooldownMs;
+    }
+
+    /**
+     * Sets reaction cooldown for a mob.
+     */
+    private void setReactionCooldown(Mob mob) {
+        reactionCooldowns.put(mob.getUniqueId(), System.currentTimeMillis());
+    }
+
+    /**
+     * Makes mob look at location with scheduled stop after duration.
+     */
+    private void makeMobLookAtWithDuration(Mob mob, Location target, int durationTicks) {
+        UUID mobId = mob.getUniqueId();
+
+        // Start looking
+        makeMobLookAt(mob, target);
+        lookAtStartTime.put(mobId, System.currentTimeMillis());
+
+        // Schedule stop looking after duration
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (mob.isValid()) {
+                // Stop looking by resetting pathfinder (mob will look forward again)
+                mob.getPathfinder().stopPathfinding();
+                lookAtStartTime.remove(mobId);
+            }
+        }, durationTicks);
     }
 
     /**
@@ -82,7 +132,7 @@ public class MobListener implements Listener {
     /**
      * Processes all mobs near the voice location.
      */
-    private void processNearbyMobs(Player player, Location loc, boolean isSneaking) {
+    private void processNearbyMobs(Player player, Location loc, boolean isSneaking, double decibels) {
         ConfigManager config = plugin.getConfigManager();
 
         // Use max possible range to check all entities
@@ -91,12 +141,15 @@ public class MobListener implements Listener {
                 Math.max(config.getPeacefulMaxRange(), config.getWardenMaxRange())
         );
 
+        // Account for volume boost (loud voices = larger search area)
+        maxCheckRange = RangeCalculator.calculateEffectiveRange(maxCheckRange, decibels, config.getVolumeThresholdDb());
+
         Collection<Entity> nearbyEntities = loc.getWorld()
                 .getNearbyEntities(loc, maxCheckRange, maxCheckRange, maxCheckRange);
 
         for (Entity entity : nearbyEntities) {
             if (entity instanceof Mob) {
-                processMob((Mob) entity, player, loc, isSneaking);
+                processMob((Mob) entity, player, loc, isSneaking, decibels);
             }
         }
     }
@@ -104,41 +157,50 @@ public class MobListener implements Listener {
     /**
      * Processes a single mob's reaction to voice.
      */
-    private void processMob(Mob mob, Player player, Location playerLoc, boolean isSneaking) {
+    private void processMob(Mob mob, Player player, Location playerLoc, boolean isSneaking, double decibels) {
         EntityType type = mob.getType();
         ConfigManager config = plugin.getConfigManager();
 
         // Determine mob category and process accordingly
         if (type == EntityType.WARDEN && config.isWardenEnabled()) {
-            processWarden((Warden) mob, player, playerLoc);
+            processWarden((Warden) mob, player, playerLoc, decibels);
         } else if (MobCategory.isHostile(type)) {
-            processHostileMob(mob, player, playerLoc);
+            processHostileMob(mob, player, playerLoc, decibels);
         } else if (MobCategory.isNeutral(type)) {
-            processNeutralMob(mob, player, playerLoc);
+            processNeutralMob(mob, player, playerLoc, decibels);
         } else if (MobCategory.isPeaceful(type)) {
-            processPeacefulMob(mob, player, playerLoc, isSneaking);
+            processPeacefulMob(mob, player, playerLoc, isSneaking, decibels);
         }
     }
 
     /**
      * Processes Warden special behavior.
      */
-    private void processWarden(Warden warden, Player player, Location playerLoc) {
+    private void processWarden(Warden warden, Player player, Location playerLoc, double decibels) {
         ConfigManager config = plugin.getConfigManager();
+
+        // Check threshold
+        if (decibels < config.getWardenVolumeThresholdDb()) {
+            return;
+        }
 
         double distance = warden.getLocation().distance(playerLoc);
         double maxRange = config.getWardenMaxRange();
         double minRange = config.getWardenMinRange();
         double falloffCurve = config.getWardenFalloffCurve();
+        double volumeThresholdDb = config.getWardenVolumeThresholdDb();
 
-        // Check if in range
-        if (distance > maxRange) {
+        // Calculate effective range based on volume
+        double effectiveMaxRange = RangeCalculator.calculateEffectiveRange(maxRange, decibels, volumeThresholdDb);
+
+        // Check if in effective range
+        if (distance > effectiveMaxRange) {
             return;
         }
 
-        // Calculate detection chance
-        double detectionChance = RangeCalculator.calculateDetectionChance(
-                distance, minRange, maxRange, falloffCurve
+        // Calculate detection chance with dynamic range
+        double detectionChance = RangeCalculator.calculateDynamicDetectionChance(
+                distance, minRange, maxRange, falloffCurve, decibels, volumeThresholdDb
         );
 
         // Probabilistic detection
@@ -146,8 +208,8 @@ public class MobListener implements Listener {
             return;
         }
 
-        // Calculate anger based on distance
-        int angerIncrease = RangeCalculator.calculateWardenAnger(distance, minRange, maxRange);
+        // Calculate anger based on distance and volume
+        int angerIncrease = RangeCalculator.calculateWardenAnger(distance, minRange, maxRange, decibels, volumeThresholdDb);
         warden.increaseAnger(player, angerIncrease);
 
         // Debug logging
@@ -155,7 +217,7 @@ public class MobListener implements Listener {
             plugin.getLogger().info(String.format(
                     "Warden anger +%d | %s",
                     angerIncrease,
-                    RangeCalculator.getDebugInfo(distance, minRange, maxRange, falloffCurve)
+                    RangeCalculator.getDynamicDebugInfo(distance, minRange, maxRange, falloffCurve, decibels, volumeThresholdDb)
             ));
         }
     }
@@ -163,7 +225,7 @@ public class MobListener implements Listener {
     /**
      * Processes hostile mob behavior.
      */
-    private void processHostileMob(Mob mob, Player player, Location playerLoc) {
+    private void processHostileMob(Mob mob, Player player, Location playerLoc, double decibels) {
         ConfigManager config = plugin.getConfigManager();
 
         if (!config.isHostileMobsEnabled()) {
@@ -174,17 +236,27 @@ public class MobListener implements Listener {
             return;
         }
 
+        // Check threshold
+        if (decibels < config.getHostileVolumeThresholdDb()) {
+            return;
+        }
+
         double distance = mob.getLocation().distance(playerLoc);
         double maxRange = config.getHostileMaxRange();
         double minRange = config.getHostileMinRange();
         double falloffCurve = config.getHostileFalloffCurve();
+        double volumeThresholdDb = config.getHostileVolumeThresholdDb();
 
-        if (distance > maxRange) {
+        // Calculate effective range based on volume
+        double effectiveMaxRange = RangeCalculator.calculateEffectiveRange(maxRange, decibels, volumeThresholdDb);
+
+        if (distance > effectiveMaxRange) {
             return;
         }
 
-        double detectionChance = RangeCalculator.calculateDetectionChance(
-                distance, minRange, maxRange, falloffCurve
+        // Calculate detection chance with dynamic range
+        double detectionChance = RangeCalculator.calculateDynamicDetectionChance(
+                distance, minRange, maxRange, falloffCurve, decibels, volumeThresholdDb
         );
 
         if (Math.random() > detectionChance) {
@@ -201,7 +273,7 @@ public class MobListener implements Listener {
             plugin.getLogger().info(String.format(
                     "Hostile %s detected | %s",
                     mob.getType(),
-                    RangeCalculator.getDebugInfo(distance, minRange, maxRange, falloffCurve)
+                    RangeCalculator.getDynamicDebugInfo(distance, minRange, maxRange, falloffCurve, decibels, volumeThresholdDb)
             ));
         }
     }
@@ -209,7 +281,7 @@ public class MobListener implements Listener {
     /**
      * Processes neutral mob behavior (look at player).
      */
-    private void processNeutralMob(Mob mob, Player player, Location playerLoc) {
+    private void processNeutralMob(Mob mob, Player player, Location playerLoc, double decibels) {
         ConfigManager config = plugin.getConfigManager();
 
         if (!config.isNeutralMobsEnabled()) {
@@ -220,26 +292,49 @@ public class MobListener implements Listener {
             return;
         }
 
+        // Check threshold
+        if (decibels < config.getNeutralVolumeThresholdDb()) {
+            return;
+        }
+
+        // Check reaction cooldown - prevents rapid re-triggering
+        if (isOnReactionCooldown(mob, config.getNeutralReactionCooldownMs())) {
+            return;
+        }
+
         double distance = mob.getLocation().distance(playerLoc);
         double maxRange = config.getNeutralMaxRange();
         double minRange = config.getNeutralMinRange();
         double falloffCurve = config.getNeutralFalloffCurve();
+        double volumeThresholdDb = config.getNeutralVolumeThresholdDb();
 
-        if (distance > maxRange) {
+        // Calculate effective range based on volume
+        double effectiveMaxRange = RangeCalculator.calculateEffectiveRange(maxRange, decibels, volumeThresholdDb);
+
+        if (distance > effectiveMaxRange) {
             return;
         }
 
-        double detectionChance = RangeCalculator.calculateDetectionChance(
-                distance, minRange, maxRange, falloffCurve
+        // Calculate detection chance with dynamic range
+        double detectionChance = RangeCalculator.calculateDynamicDetectionChance(
+                distance, minRange, maxRange, falloffCurve, decibels, volumeThresholdDb
         );
 
         if (Math.random() > detectionChance) {
             return;
         }
 
-        // Make mob look at player
+        // Natural behavior: Not all mobs react every time
+        if (Math.random() > config.getNeutralReactionChance()) {
+            return;
+        }
+
+        // Set cooldown to prevent immediate re-reaction
+        setReactionCooldown(mob);
+
+        // Make mob look at player with duration
         if (config.shouldNeutralLookAtPlayer()) {
-            makeMobLookAt(mob, player.getLocation());
+            makeMobLookAtWithDuration(mob, player.getLocation(), config.getNeutralLookDurationTicks());
         }
 
         // Debug logging
@@ -247,15 +342,15 @@ public class MobListener implements Listener {
             plugin.getLogger().info(String.format(
                     "Neutral %s looked | %s",
                     mob.getType(),
-                    RangeCalculator.getDebugInfo(distance, minRange, maxRange, falloffCurve)
+                    RangeCalculator.getDynamicDebugInfo(distance, minRange, maxRange, falloffCurve, decibels, volumeThresholdDb)
             ));
         }
     }
 
     /**
-     * Processes peaceful mob behavior (look at player, follow when sneaking).
+     * Processes peaceful mob behavior (look at player, flee from loud noise, follow when sneaking).
      */
-    private void processPeacefulMob(Mob mob, Player player, Location playerLoc, boolean isSneaking) {
+    private void processPeacefulMob(Mob mob, Player player, Location playerLoc, boolean isSneaking, double decibels) {
         ConfigManager config = plugin.getConfigManager();
 
         if (!config.isPeacefulMobsEnabled()) {
@@ -266,42 +361,186 @@ public class MobListener implements Listener {
             return;
         }
 
+        // Check threshold
+        if (decibels < config.getPeacefulVolumeThresholdDb()) {
+            return;
+        }
+
         double distance = mob.getLocation().distance(playerLoc);
         double maxRange = config.getPeacefulMaxRange();
         double minRange = config.getPeacefulMinRange();
         double falloffCurve = config.getPeacefulFalloffCurve();
+        double volumeThresholdDb = config.getPeacefulVolumeThresholdDb();
 
-        if (distance > maxRange) {
+        // Calculate effective range based on volume
+        double effectiveMaxRange = RangeCalculator.calculateEffectiveRange(maxRange, decibels, volumeThresholdDb);
+
+        if (distance > effectiveMaxRange) {
             return;
         }
 
-        double detectionChance = RangeCalculator.calculateDetectionChance(
-                distance, minRange, maxRange, falloffCurve
+        // Calculate detection chance with dynamic range
+        double detectionChance = RangeCalculator.calculateDynamicDetectionChance(
+                distance, minRange, maxRange, falloffCurve, decibels, volumeThresholdDb
         );
 
         if (Math.random() > detectionChance) {
             return;
         }
 
-        // Make mob look at player
-        if (config.shouldPeacefulLookAtPlayer()) {
-            makeMobLookAt(mob, player.getLocation());
+        // Natural behavior: Not all mobs react every time
+        if (Math.random() > config.getPeacefulReactionChance()) {
+            return;
         }
 
-        // If sneaking: make mob follow
+        // Check if mob should flee from loud noise (flee overrides cooldown)
+        if (config.isFleeEnabled() && decibels > config.getFleeVolumeDb() && !mob.hasMetadata(FLEE_META_KEY)) {
+            setReactionCooldown(mob);
+            makeMobFlee(mob, player);
+
+            if (plugin.getConfig().getBoolean("debug.peaceful-logging", false)) {
+                plugin.getLogger().info(String.format(
+                        "Peaceful %s fleeing | dB: %.1f | Distance: %.1f",
+                        mob.getType(), decibels, distance
+                ));
+            }
+            return;
+        }
+
+        // Check reaction cooldown for normal behaviors (look/follow)
+        // But allow eye contact tracking even on cooldown
+        boolean onCooldown = isOnReactionCooldown(mob, config.getPeacefulReactionCooldownMs());
+
+        // Always track eye contact if player is looking at mob (even on cooldown)
+        if (config.shouldPeacefulLookAtPlayer() && isPlayerLookingAtMob(player, mob, config.getEyeContactRange())) {
+            recordEyeContact(mob, player);
+        }
+
+        // Skip other reactions if on cooldown
+        if (onCooldown) {
+            return;
+        }
+
+        // Set cooldown for this reaction
+        setReactionCooldown(mob);
+
+        // Make mob look at player with duration
+        if (config.shouldPeacefulLookAtPlayer()) {
+            makeMobLookAtWithDuration(mob, player.getLocation(), config.getPeacefulLookDurationTicks());
+        }
+
+        // If sneaking: check eye contact requirement and make mob follow
         if (isSneaking && config.isFollowWhenSneakingEnabled()) {
-            startFollowing(mob, player);
+            if (config.requiresEyeContact()) {
+                // Check if player has established eye contact recently
+                if (hasRecentEyeContact(mob, player)) {
+                    startFollowing(mob, player);
+                }
+            } else {
+                // No eye contact required
+                startFollowing(mob, player);
+            }
         }
 
         // Debug logging
         if (plugin.getConfig().getBoolean("debug.peaceful-logging", false)) {
+            String action = isSneaking ? "following" : "looked";
             plugin.getLogger().info(String.format(
                     "Peaceful %s %s | %s",
                     mob.getType(),
-                    isSneaking ? "following" : "looked",
-                    RangeCalculator.getDebugInfo(distance, minRange, maxRange, falloffCurve)
+                    action,
+                    RangeCalculator.getDynamicDebugInfo(distance, minRange, maxRange, falloffCurve, decibels, volumeThresholdDb)
             ));
         }
+    }
+
+    /**
+     * Makes a mob flee from the player.
+     */
+    private void makeMobFlee(Mob mob, Player player) {
+        ConfigManager config = plugin.getConfigManager();
+
+        // Set metadata to prevent repeated flee triggers
+        mob.setMetadata(FLEE_META_KEY, new FixedMetadataValue(plugin, true));
+
+        // Calculate flee location (away from player)
+        Location mobLoc = mob.getLocation();
+        Location playerLoc = player.getLocation();
+
+        // Vector from player to mob (direction to flee)
+        org.bukkit.util.Vector direction = mobLoc.toVector().subtract(playerLoc.toVector()).normalize();
+
+        // Target location: flee-distance blocks away
+        Location fleeTarget = mobLoc.clone().add(direction.multiply(config.getFleeDistance()));
+
+        // Make mob pathfind away
+        mob.getPathfinder().moveTo(fleeTarget);
+
+        // Remove flee metadata after duration (in ticks)
+        int fleeDurationTicks = config.getFleeDurationTicks();
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (mob.isValid()) {
+                mob.removeMetadata(FLEE_META_KEY, plugin);
+                mob.getPathfinder().stopPathfinding();
+            }
+        }, fleeDurationTicks);
+    }
+
+    /**
+     * Checks if player is looking at a mob within range.
+     */
+    private boolean isPlayerLookingAtMob(Player player, Mob mob, double range) {
+        Location playerEye = player.getEyeLocation();
+        Location mobLoc = mob.getLocation().add(0, mob.getHeight() / 2, 0);
+
+        double distance = playerEye.distance(mobLoc);
+        if (distance > range) {
+            return false;
+        }
+
+        // Check if mob is in player's line of sight
+        org.bukkit.util.Vector toMob = mobLoc.toVector().subtract(playerEye.toVector()).normalize();
+        org.bukkit.util.Vector playerDirection = playerEye.getDirection();
+
+        // Dot product to check angle (1.0 = directly looking, 0.0 = perpendicular)
+        double dotProduct = toMob.dot(playerDirection);
+
+        // Allow ~45 degree cone (cos(45°) ≈ 0.7)
+        return dotProduct > 0.7;
+    }
+
+    /**
+     * Records eye contact between player and mob.
+     */
+    private void recordEyeContact(Mob mob, Player player) {
+        mob.setMetadata(EYE_CONTACT_META_KEY, new FixedMetadataValue(plugin, player.getUniqueId().toString()));
+        mob.setMetadata(EYE_CONTACT_TIME_KEY, new FixedMetadataValue(plugin, System.currentTimeMillis()));
+    }
+
+    /**
+     * Checks if player has recent eye contact with mob.
+     */
+    private boolean hasRecentEyeContact(Mob mob, Player player) {
+        if (!mob.hasMetadata(EYE_CONTACT_META_KEY)) {
+            return false;
+        }
+
+        // Check if eye contact was with this player
+        String contactedPlayer = mob.getMetadata(EYE_CONTACT_META_KEY).get(0).asString();
+        if (!contactedPlayer.equals(player.getUniqueId().toString())) {
+            return false;
+        }
+
+        // Check if eye contact is recent enough
+        if (!mob.hasMetadata(EYE_CONTACT_TIME_KEY)) {
+            return false;
+        }
+
+        long contactTime = mob.getMetadata(EYE_CONTACT_TIME_KEY).get(0).asLong();
+        long currentTime = System.currentTimeMillis();
+        long memoryDurationMs = plugin.getConfigManager().getEyeContactMemoryMs();
+
+        return (currentTime - contactTime) < memoryDurationMs;
     }
 
     /**
@@ -376,6 +615,11 @@ public class MobListener implements Listener {
 
                 return false;
             });
+
+            // Clean up old reaction cooldowns (remove entries older than 30 seconds)
+            reactionCooldowns.entrySet().removeIf(entry ->
+                    (currentTime - entry.getValue()) > 30000L  // 30 seconds
+            );
         }, 20L, 20L);  // Run every second
     }
 
