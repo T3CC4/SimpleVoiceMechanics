@@ -1,6 +1,6 @@
 # SimpleVoiceMechanics
 
-A Spigot/Paper plugin that integrates SimpleVoiceChat with Minecraft's game mechanics. Mobs react to player voice activity based on configurable detection ranges.
+A Paper plugin that integrates Simple Voice Chat with Minecraft's game mechanics. Mobs react to player voice activity based on configurable detection ranges.
 
 ## Features
 
@@ -13,14 +13,14 @@ A Spigot/Paper plugin that integrates SimpleVoiceChat with Minecraft's game mech
 
 ## Requirements
 
-- Paper 1.21+ (or compatible fork)
-- Java 21
-- [SimpleVoiceChat](https://modrinth.com/plugin/simple-voice-chat) plugin
+- Paper 1.19+ (or compatible fork)
+- Java 17+
+- [Simple Voice Chat](https://modrinth.com/plugin/simple-voice-chat) plugin
 
 ## Installation
 
-1. Download SimpleVoiceChat and place it in your plugins folder
-2. Download SimpleVoiceMechanics and place it in your plugins folder
+1. Download Simple Voice Chat and place it in your plugins folder
+2. Download Simple Voice Mechanics and place it in your plugins folder
 3. Start your server
 4. Configure the plugin in `plugins/SimpleVoiceMechanics/config.yml`
 5. Reload with `/voicelistener reload`
@@ -186,10 +186,6 @@ The compiled JAR will be in `target/SimpleVoiceMechanics-1.0.0.jar`
 For issues, questions, or suggestions:
 - Open an issue on GitHub
 - Join our Discord (if applicable)
-
-## License
-
-[Your chosen license]
 
 ## Credits
 

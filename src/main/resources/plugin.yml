@@ -1,5 +1,5 @@
 name: SimpleVoiceMechanics
-version: '1.0.0'
+version: '${project.version}'
 main: de.tecca.simplevoicemechanics.SimpleVoiceMechanics
 api-version: '1.21'
 author: Tecca

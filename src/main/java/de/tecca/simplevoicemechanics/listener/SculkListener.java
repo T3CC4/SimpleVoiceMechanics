@@ -19,7 +19,8 @@ import java.util.Map;
  * <p>Triggers Sculk Sensors (regular and calibrated) when players speak nearby.
  * Uses range-based detection with configurable min/max range and falloff curve.
  *
- * <p>Uses Paper's native GameEvent API for triggering Sculk Sensors without NMS.
+ * <p>Requires Minecraft 1.19+ for GameEvent API support.
+ * If GameEvent API is not available, this listener will be disabled.
  *
  * @author Tecca
  * @version 1.0.0
@@ -27,12 +28,31 @@ import java.util.Map;
 public class SculkListener implements Listener {
 
     private final SimpleVoiceMechanics plugin;
+    private final boolean gameEventSupported;
 
     /** Tracks last trigger time for each Sculk Sensor location */
     private final Map<Location, Long> lastTriggerTime = new HashMap<>();
 
     public SculkListener(SimpleVoiceMechanics plugin) {
         this.plugin = plugin;
+        this.gameEventSupported = checkGameEventSupport();
+
+        if (!gameEventSupported) {
+            plugin.getLogger().warning("GameEvent API not available - Sculk Sensor detection disabled");
+            plugin.getLogger().warning("Sculk Sensors require Minecraft 1.19+");
+        }
+    }
+
+    /**
+     * Checks if GameEvent API is available in this version.
+     */
+    private boolean checkGameEventSupport() {
+        try {
+            Class.forName("org.bukkit.GameEvent");
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
+        }
     }
 
     /**
@@ -40,6 +60,10 @@ public class SculkListener implements Listener {
      */
     @EventHandler
     public void onVoiceDetected(VoiceDetectedEvent event) {
+        if (!gameEventSupported) {
+            return;
+        }
+
         if (!plugin.getConfigManager().isSculkEnabled()) {
             return;
         }
@@ -94,10 +118,12 @@ public class SculkListener implements Listener {
 
     /**
      * Checks if a block is a Sculk Sensor (regular or calibrated).
+     * Version-safe check for blocks that may not exist in older versions.
      */
     private boolean isSculkSensor(Block block) {
         Material type = block.getType();
-        return type == Material.SCULK_SENSOR || type == Material.CALIBRATED_SCULK_SENSOR;
+        String typeName = type.name();
+        return typeName.equals("SCULK_SENSOR") || typeName.equals("CALIBRATED_SCULK_SENSOR");
     }
 
     /**
@@ -132,7 +158,7 @@ public class SculkListener implements Listener {
             return;
         }
 
-        // Trigger the Sculk Sensor using NMS
+        // Trigger the Sculk Sensor
         triggerSculkSensor(block, player);
 
         // Record trigger time
@@ -163,9 +189,11 @@ public class SculkListener implements Listener {
     }
 
     /**
-     * Triggers a Sculk Sensor using Paper's native API.
+     * Triggers a Sculk Sensor using Paper's GameEvent API.
+     * Only called when gameEventSupported is true.
      */
     private void triggerSculkSensor(Block block, Player player) {
+        // Send STEP game event at block center to trigger Sculk Sensor
         block.getWorld().sendGameEvent(
                 player,
                 org.bukkit.GameEvent.STEP,
