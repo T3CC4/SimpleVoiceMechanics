@@ -4,6 +4,7 @@ import de.tecca.simplevoicemechanics.SimpleVoiceMechanics;
 import de.tecca.simplevoicemechanics.event.VoiceDetectedEvent;
 import de.tecca.simplevoicemechanics.manager.ConfigManager;
 import de.tecca.simplevoicemechanics.util.MobCategory;
+import de.tecca.simplevoicemechanics.util.MobCondition;
 import de.tecca.simplevoicemechanics.util.RangeCalculator;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
@@ -236,6 +237,11 @@ public class MobListener implements Listener {
             return;
         }
 
+        // Check if mob can attack (not tamed, not baby)
+        if (!MobCondition.canAttack(mob)) {
+            return;
+        }
+
         // Check threshold
         if (decibels < config.getHostileVolumeThresholdDb()) {
             return;
@@ -324,16 +330,17 @@ public class MobListener implements Listener {
             return;
         }
 
-        // Natural behavior: Not all mobs react every time
-        if (Math.random() > config.getNeutralReactionChance()) {
+        // Apply reaction multiplier for special mobs (e.g., babies)
+        double reactionChance = config.getNeutralReactionChance() * MobCondition.getReactionMultiplier(mob);
+        if (Math.random() > reactionChance) {
             return;
         }
 
         // Set cooldown to prevent immediate re-reaction
         setReactionCooldown(mob);
 
-        // Make mob look at player with duration
-        if (config.shouldNeutralLookAtPlayer()) {
+        // Make mob look at player with duration (only if can look)
+        if (config.shouldNeutralLookAtPlayer() && MobCondition.canLookAt(mob)) {
             makeMobLookAtWithDuration(mob, player.getLocation(), config.getNeutralLookDurationTicks());
         }
 
@@ -388,13 +395,15 @@ public class MobListener implements Listener {
             return;
         }
 
-        // Natural behavior: Not all mobs react every time
-        if (Math.random() > config.getPeacefulReactionChance()) {
+        // Apply reaction multiplier for special mobs (e.g., babies)
+        double reactionChance = config.getPeacefulReactionChance() * MobCondition.getReactionMultiplier(mob);
+        if (Math.random() > reactionChance) {
             return;
         }
 
         // Check if mob should flee from loud noise (flee overrides cooldown)
-        if (config.isFleeEnabled() && decibels > config.getFleeVolumeDb() && !mob.hasMetadata(FLEE_META_KEY)) {
+        if (config.isFleeEnabled() && decibels > config.getFleeVolumeDb() &&
+                !mob.hasMetadata(FLEE_META_KEY) && MobCondition.canFlee(mob)) {
             setReactionCooldown(mob);
             makeMobFlee(mob, player);
 
@@ -424,13 +433,13 @@ public class MobListener implements Listener {
         // Set cooldown for this reaction
         setReactionCooldown(mob);
 
-        // Make mob look at player with duration
-        if (config.shouldPeacefulLookAtPlayer()) {
+        // Make mob look at player with duration (only if can look)
+        if (config.shouldPeacefulLookAtPlayer() && MobCondition.canLookAt(mob)) {
             makeMobLookAtWithDuration(mob, player.getLocation(), config.getPeacefulLookDurationTicks());
         }
 
-        // If sneaking: check eye contact requirement and make mob follow
-        if (isSneaking && config.isFollowWhenSneakingEnabled()) {
+        // If sneaking: check eye contact requirement and make mob follow (only if can follow)
+        if (isSneaking && config.isFollowWhenSneakingEnabled() && MobCondition.canFollow(mob)) {
             if (config.requiresEyeContact()) {
                 // Check if player has established eye contact recently
                 if (hasRecentEyeContact(mob, player)) {
@@ -555,7 +564,7 @@ public class MobListener implements Listener {
     }
 
     /**
-     * Starts mob following player.
+     * Starts mob following player (only if mob can follow).
      */
     private void startFollowing(Mob mob, Player player) {
         UUID mobId = mob.getUniqueId();
@@ -602,6 +611,13 @@ public class MobListener implements Listener {
 
                 if (mobEntity instanceof Mob) {
                     Mob mob = (Mob) mobEntity;
+
+                    // Check if mob can still follow
+                    if (!MobCondition.canFollow(mob)) {
+                        cleanupMob(mobId);
+                        return true;
+                    }
+
                     double distance = mob.getLocation().distance(player.getLocation());
 
                     if (distance > maxDistance) {
