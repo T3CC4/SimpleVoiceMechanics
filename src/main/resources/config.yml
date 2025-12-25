@@ -28,6 +28,35 @@ detection:
   falloff-curve: 1.0
 
 # ----------------------------------------
+# Environmental Modifiers (NEW!)
+# ----------------------------------------
+# Biomes and weather affect how far sound travels
+
+environmental-modifiers:
+  enabled: true
+
+  # Biome-based sound modifiers
+  biome-modifiers:
+    enabled: true
+    # How biomes affect sound:
+    # CAVE/UNDERGROUND: 1.3x (Echo amplification)
+    # FOREST/JUNGLE: 0.7x (Vegetation dampening)
+    # OCEAN/RIVER: 0.6x (Water muffling)
+    # MOUNTAIN/HILLS: 1.2x (Sound carries well)
+    # DESERT/PLAINS: 1.1x (Open space)
+    # NETHER: 1.4x (Echo in lava caves)
+    # SWAMP: 0.8x (Moisture dampens)
+    # END: 1.0x (Void dampens)
+
+  # Weather-based sound modifiers
+  weather-modifiers:
+    enabled: true
+    # How weather affects sound:
+    # CLEAR: 1.0x (No change)
+    # RAIN: 0.8x (Rain noise dampens voice)
+    # THUNDERSTORM: 0.6x (Thunder masks sound)
+
+# ----------------------------------------
 # Mob Hearing Mechanics
 # ----------------------------------------
 mob-hearing:
@@ -60,6 +89,15 @@ mob-hearing:
     max-range: null
     min-range: null
     falloff-curve: null
+    # Natural behavior settings
+    natural-behavior:
+      # Not all mobs react every time (more realistic)
+      # Chance that a mob will react to voice (0.0 - 1.0)
+      reaction-chance: 0.6  # 60% chance to react
+      # How long mob looks at player after reacting (seconds)
+      look-duration: 8  # 8 seconds
+      # Cooldown between reactions (seconds)
+      reaction-cooldown: 3  # 3 seconds
     blacklist:
       - "ENDERMAN"
 
@@ -151,6 +189,37 @@ debug:
   sculk-logging: false
   # Shows Peaceful Mob reactions
   peaceful-logging: false
+  # Shows environmental modifiers
+  environmental-logging: false
+
+# ----------------------------------------
+# Explanation: Environmental Modifiers
+# ----------------------------------------
+#
+# ENVIRONMENTAL MODIFIERS work by multiplying detection range and adjusting thresholds:
+#
+# Example 1: Cave (1.3x amplification)
+# - Base range: 16 blocks → Effective range: 20.8 blocks
+# - Base threshold: -40 dB → Effective threshold: -43 dB (easier to detect)
+#
+# Example 2: Forest (0.7x dampening)
+# - Base range: 16 blocks → Effective range: 11.2 blocks
+# - Base threshold: -40 dB → Effective threshold: -37 dB (harder to detect)
+#
+# Example 3: Cave + Thunderstorm (1.3x × 0.6x = 0.78x)
+# - Base range: 16 blocks → Effective range: 12.5 blocks
+# - Thunder masks sound, even in echo-prone caves
+#
+# STRATEGIC GAMEPLAY:
+# - Sneak through forests during thunderstorms (0.7x × 0.6x = 0.42x range!)
+# - Avoid caves and open deserts when speaking
+# - Use weather to your advantage
+#
+# REALISTIC SCENARIOS:
+# - Speaking in a cave: Zombies hear you from 20+ blocks away
+# - Whispering in a dense jungle during rain: Only 4-5 block detection
+# - Shouting in desert: Creepers detect from 22+ blocks
+# - Normal speaking underwater: Only 10 blocks (muffled)
 
 # ----------------------------------------
 # Explanation: Hybrid Detection System
@@ -160,9 +229,10 @@ debug:
 # 1. Player speaks → Voice Packet is captured
 # 2. Opus audio is decoded to PCM samples
 # 3. Audio level is calculated in decibels (dB)
-# 4. If dB > volume-threshold-db → Event is fired
-# 5. Entities within max-range check detection probability
-# 6. Detection chance based on distance and falloff-curve
+# 4. Environmental modifiers are applied (biome + weather)
+# 5. If dB > adjusted threshold → Event is fired
+# 6. Entities within modified range check detection probability
+# 7. Detection chance based on distance and falloff-curve
 #
 # DECIBEL (dB) SCALE:
 # -127 dB: Complete silence
@@ -191,17 +261,19 @@ debug:
 # - 2-16 blocks: Smooth falloff based on falloff-curve
 # - 16+ blocks (max-range): 0% detection chance
 #
-# EXAMPLE (default settings):
+# EXAMPLE (default settings in forest during rain):
 # Player speaks at -35 dB (normal volume):
-# - Passes threshold (-35 > -40) ✓
-# - At 4 blocks: ~90% chance
-# - At 8 blocks: ~60% chance
-# - At 12 blocks: ~30% chance
-# - At 16 blocks: ~10% chance
+# - Environment: Forest (0.7x) × Rain (0.8x) = 0.56x modifier
+# - Threshold: -40 dB → -35.6 dB (adjusted)
+# - Passes threshold (-35 > -35.6) ✓
+# - Range: 16 blocks → 9 blocks (modified)
+# - At 4 blocks: ~60% chance (instead of 90%)
+# - At 8 blocks: ~20% chance (instead of 60%)
 #
-# Player whispers at -50 dB:
-# - Fails threshold (-50 < -40) ✗
-# - No detection at any distance
+# Player whispers at -50 dB in cave:
+# - Environment: Cave (1.3x) amplifies sound
+# - Threshold: -40 dB → -43 dB (easier to detect)
+# - Still fails threshold (-50 < -43) ✗
 
 # ----------------------------------------
 # Tuning Guide
@@ -211,26 +283,31 @@ debug:
 # - Increase min-range (e.g., 4.0)
 # - Decrease max-range (e.g., 12.0)
 # - Lower falloff-curve (e.g., 0.7)
+# - Keep environmental modifiers enabled
 #
 # For ACTION gameplay (easy to detect):
 # - Decrease min-range (e.g., 1.0)
 # - Increase max-range (e.g., 20.0)
 # - Higher falloff-curve (e.g., 1.5)
+# - Disable environmental modifiers for consistency
 #
 # For REALISTIC gameplay (balanced):
 # - Keep defaults
+# - Enable all environmental modifiers
 # - Adjust per mob category as needed
 #
 # EXAMPLES:
 #
-# Warden ultra sensitive:
+# Ultra-realistic survival:
+#   environmental-modifiers.enabled: true
+#   hostile-mobs.volume-threshold-db: -45.0
+#   hostile-mobs.max-range: 18.0
+#
+# Hardcore cave exploration:
+#   biome-modifiers.enabled: true
+#   weather-modifiers.enabled: false
 #   warden.max-range: 32.0
-#   warden.falloff-curve: 0.5
 #
-# Peaceful mobs very shy:
-#   peaceful-mobs.max-range: 6.0
-#   peaceful-mobs.min-range: 1.0
-#
-# Sculk sensors short range:
-#   sculk-hearing.max-range: 10.0
-#   sculk-hearing.falloff-curve: 1.5
+# Casual gameplay:
+#   environmental-modifiers.enabled: false
+#   All default ranges

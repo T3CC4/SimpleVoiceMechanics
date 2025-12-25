@@ -3,12 +3,9 @@ package de.tecca.simplevoicemechanics.listener;
 import de.tecca.simplevoicemechanics.SimpleVoiceMechanics;
 import de.tecca.simplevoicemechanics.event.VoiceDetectedEvent;
 import de.tecca.simplevoicemechanics.manager.ConfigManager;
-import de.tecca.simplevoicemechanics.util.MobCategory;
-import de.tecca.simplevoicemechanics.util.MobCondition;
-import de.tecca.simplevoicemechanics.util.RangeCalculator;
-import org.bukkit.Bukkit;
-import org.bukkit.GameMode;
-import org.bukkit.Location;
+import de.tecca.simplevoicemechanics.util.*;
+import org.bukkit.*;
+import org.bukkit.block.Biome;
 import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -30,8 +27,15 @@ import java.util.UUID;
  *   <li>Warden: Special anger-based behavior</li>
  * </ul>
  *
+ * <p>New Features (v1.3.0):
+ * <ul>
+ *   <li>Biome-specific modifiers (caves echo, forests dampen)</li>
+ *   <li>Time-of-day modifiers (night = more sensitive)</li>
+ *   <li>Mob group alerting (zombies call hordes)</li>
+ * </ul>
+ *
  * @author Tecca
- * @version 1.2.0
+ * @version 1.3.0
  */
 public class MobListener implements Listener {
 
@@ -44,14 +48,14 @@ public class MobListener implements Listener {
     private final SimpleVoiceMechanics plugin;
 
     // Tracks which mobs are currently following which players
-    private final Map<UUID, UUID> followingMobs = new HashMap<>();  // MobUUID -> PlayerUUID
-    private final Map<UUID, Long> followStartTime = new HashMap<>();  // MobUUID -> StartTime
+    private final Map<UUID, UUID> followingMobs = new HashMap<>();
+    private final Map<UUID, Long> followStartTime = new HashMap<>();
 
     // Reaction cooldowns to prevent rapid re-triggering
-    private final Map<UUID, Long> reactionCooldowns = new HashMap<>();  // MobUUID -> LastReactionTime
+    private final Map<UUID, Long> reactionCooldowns = new HashMap<>();
 
     // Look-at tracking for duration
-    private final Map<UUID, Long> lookAtStartTime = new HashMap<>();  // MobUUID -> StartTime
+    private final Map<UUID, Long> lookAtStartTime = new HashMap<>();
 
     public MobListener(SimpleVoiceMechanics plugin) {
         this.plugin = plugin;
@@ -78,8 +82,80 @@ public class MobListener implements Listener {
         double decibels = event.getDecibels();
         boolean isSneaking = player.isSneaking();
 
+        // Apply environmental modifiers
+        double modifiedDecibels = applyEnvironmentalModifiers(player, decibels);
+
         // Process all nearby mobs
-        processNearbyMobs(player, loc, isSneaking, decibels);
+        processNearbyMobs(player, loc, isSneaking, modifiedDecibels);
+    }
+
+    /**
+     * Applies environmental modifiers (biome + time) to audio level.
+     */
+    private double applyEnvironmentalModifiers(Player player, double decibels) {
+        ConfigManager config = plugin.getConfigManager();
+
+        if (!config.isBiomeModifiersEnabled() && !config.isTimeModifiersEnabled()) {
+            return decibels;
+        }
+
+        World world = player.getWorld();
+        Location loc = player.getLocation();
+
+        double adjustment = 0.0;
+
+        // Biome modifiers
+        if (config.isBiomeModifiersEnabled()) {
+            Biome biome = loc.getBlock().getBiome();
+            adjustment += BiomeModifier.getThresholdAdjustment(biome);
+        }
+
+        // Time modifiers
+        if (config.isTimeModifiersEnabled()) {
+            adjustment += TimeModifier.getThresholdAdjustment(world);
+        }
+
+        // Adjust decibels (positive adjustment = easier detection)
+        double modified = decibels - adjustment;
+
+        // Debug logging
+        if (plugin.getConfig().getBoolean("debug.environmental-logging", false)) {
+            plugin.getLogger().info(String.format(
+                    "Environmental modifiers | Original: %.1f dB | Adjustment: %+.1f dB | Modified: %.1f dB",
+                    decibels, adjustment, modified
+            ));
+        }
+
+        return modified;
+    }
+
+    /**
+     * Applies environmental range multiplier.
+     */
+    private double applyRangeMultiplier(Player player, double baseRange) {
+        ConfigManager config = plugin.getConfigManager();
+
+        if (!config.isBiomeModifiersEnabled() && !config.isTimeModifiersEnabled()) {
+            return baseRange;
+        }
+
+        World world = player.getWorld();
+        Location loc = player.getLocation();
+
+        double multiplier = 1.0;
+
+        // Biome modifiers
+        if (config.isBiomeModifiersEnabled()) {
+            Biome biome = loc.getBlock().getBiome();
+            multiplier *= BiomeModifier.getRangeMultiplier(biome);
+        }
+
+        // Time modifiers
+        if (config.isTimeModifiersEnabled()) {
+            multiplier *= TimeModifier.getRangeMultiplier(world);
+        }
+
+        return baseRange * multiplier;
     }
 
     /**
@@ -115,7 +191,6 @@ public class MobListener implements Listener {
         // Schedule stop looking after duration
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (mob.isValid()) {
-                // Stop looking by resetting pathfinder (mob will look forward again)
                 mob.getPathfinder().stopPathfinding();
                 lookAtStartTime.remove(mobId);
             }
@@ -141,6 +216,9 @@ public class MobListener implements Listener {
                 Math.max(config.getHostileMaxRange(), config.getNeutralMaxRange()),
                 Math.max(config.getPeacefulMaxRange(), config.getWardenMaxRange())
         );
+
+        // Apply environmental range multiplier
+        maxCheckRange = applyRangeMultiplier(player, maxCheckRange);
 
         // Account for volume boost (loud voices = larger search area)
         maxCheckRange = RangeCalculator.calculateEffectiveRange(maxCheckRange, decibels, config.getVolumeThresholdDb());
@@ -186,8 +264,8 @@ public class MobListener implements Listener {
         }
 
         double distance = warden.getLocation().distance(playerLoc);
-        double maxRange = config.getWardenMaxRange();
-        double minRange = config.getWardenMinRange();
+        double maxRange = applyRangeMultiplier(player, config.getWardenMaxRange());
+        double minRange = applyRangeMultiplier(player, config.getWardenMinRange());
         double falloffCurve = config.getWardenFalloffCurve();
         double volumeThresholdDb = config.getWardenVolumeThresholdDb();
 
@@ -224,7 +302,7 @@ public class MobListener implements Listener {
     }
 
     /**
-     * Processes hostile mob behavior.
+     * Processes hostile mob behavior with group alerting.
      */
     private void processHostileMob(Mob mob, Player player, Location playerLoc, double decibels) {
         ConfigManager config = plugin.getConfigManager();
@@ -248,8 +326,8 @@ public class MobListener implements Listener {
         }
 
         double distance = mob.getLocation().distance(playerLoc);
-        double maxRange = config.getHostileMaxRange();
-        double minRange = config.getHostileMinRange();
+        double maxRange = applyRangeMultiplier(player, config.getHostileMaxRange());
+        double minRange = applyRangeMultiplier(player, config.getHostileMinRange());
         double falloffCurve = config.getHostileFalloffCurve();
         double volumeThresholdDb = config.getHostileVolumeThresholdDb();
 
@@ -272,6 +350,19 @@ public class MobListener implements Listener {
         // Target player
         if (mob.getTarget() == null) {
             mob.setTarget(player);
+        }
+
+        // NEW FEATURE: Mob group alerting
+        if (config.isMobGroupAlertEnabled() && MobGroupAlert.isSocialMob(mob.getType())) {
+            int maxAlerts = MobGroupAlert.calculateAlertCount(distance, minRange, maxRange);
+            int alerted = MobGroupAlert.alertNearbyMobs(mob, player, maxAlerts);
+
+            if (alerted > 0 && plugin.getConfig().getBoolean("debug.group-alert-logging", false)) {
+                plugin.getLogger().info(String.format(
+                        "%s alerted %d nearby %s(s)",
+                        mob.getType(), alerted, mob.getType()
+                ));
+            }
         }
 
         // Debug logging
@@ -303,14 +394,14 @@ public class MobListener implements Listener {
             return;
         }
 
-        // Check reaction cooldown - prevents rapid re-triggering
+        // Check reaction cooldown
         if (isOnReactionCooldown(mob, config.getNeutralReactionCooldownMs())) {
             return;
         }
 
         double distance = mob.getLocation().distance(playerLoc);
-        double maxRange = config.getNeutralMaxRange();
-        double minRange = config.getNeutralMinRange();
+        double maxRange = applyRangeMultiplier(player, config.getNeutralMaxRange());
+        double minRange = applyRangeMultiplier(player, config.getNeutralMinRange());
         double falloffCurve = config.getNeutralFalloffCurve();
         double volumeThresholdDb = config.getNeutralVolumeThresholdDb();
 
@@ -374,8 +465,8 @@ public class MobListener implements Listener {
         }
 
         double distance = mob.getLocation().distance(playerLoc);
-        double maxRange = config.getPeacefulMaxRange();
-        double minRange = config.getPeacefulMinRange();
+        double maxRange = applyRangeMultiplier(player, config.getPeacefulMaxRange());
+        double minRange = applyRangeMultiplier(player, config.getPeacefulMinRange());
         double falloffCurve = config.getPeacefulFalloffCurve();
         double volumeThresholdDb = config.getPeacefulVolumeThresholdDb();
 
@@ -417,7 +508,6 @@ public class MobListener implements Listener {
         }
 
         // Check reaction cooldown for normal behaviors (look/follow)
-        // But allow eye contact tracking even on cooldown
         boolean onCooldown = isOnReactionCooldown(mob, config.getPeacefulReactionCooldownMs());
 
         // Always track eye contact if player is looking at mob (even on cooldown)
@@ -441,12 +531,10 @@ public class MobListener implements Listener {
         // If sneaking: check eye contact requirement and make mob follow (only if can follow)
         if (isSneaking && config.isFollowWhenSneakingEnabled() && MobCondition.canFollow(mob)) {
             if (config.requiresEyeContact()) {
-                // Check if player has established eye contact recently
                 if (hasRecentEyeContact(mob, player)) {
                     startFollowing(mob, player);
                 }
             } else {
-                // No eye contact required
                 startFollowing(mob, player);
             }
         }
@@ -469,23 +557,16 @@ public class MobListener implements Listener {
     private void makeMobFlee(Mob mob, Player player) {
         ConfigManager config = plugin.getConfigManager();
 
-        // Set metadata to prevent repeated flee triggers
         mob.setMetadata(FLEE_META_KEY, new FixedMetadataValue(plugin, true));
 
-        // Calculate flee location (away from player)
         Location mobLoc = mob.getLocation();
         Location playerLoc = player.getLocation();
 
-        // Vector from player to mob (direction to flee)
         org.bukkit.util.Vector direction = mobLoc.toVector().subtract(playerLoc.toVector()).normalize();
-
-        // Target location: flee-distance blocks away
         Location fleeTarget = mobLoc.clone().add(direction.multiply(config.getFleeDistance()));
 
-        // Make mob pathfind away
         mob.getPathfinder().moveTo(fleeTarget);
 
-        // Remove flee metadata after duration (in ticks)
         int fleeDurationTicks = config.getFleeDurationTicks();
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (mob.isValid()) {
@@ -507,14 +588,10 @@ public class MobListener implements Listener {
             return false;
         }
 
-        // Check if mob is in player's line of sight
         org.bukkit.util.Vector toMob = mobLoc.toVector().subtract(playerEye.toVector()).normalize();
         org.bukkit.util.Vector playerDirection = playerEye.getDirection();
 
-        // Dot product to check angle (1.0 = directly looking, 0.0 = perpendicular)
         double dotProduct = toMob.dot(playerDirection);
-
-        // Allow ~45 degree cone (cos(45°) ≈ 0.7)
         return dotProduct > 0.7;
     }
 
@@ -534,13 +611,11 @@ public class MobListener implements Listener {
             return false;
         }
 
-        // Check if eye contact was with this player
         String contactedPlayer = mob.getMetadata(EYE_CONTACT_META_KEY).get(0).asString();
         if (!contactedPlayer.equals(player.getUniqueId().toString())) {
             return false;
         }
 
-        // Check if eye contact is recent enough
         if (!mob.hasMetadata(EYE_CONTACT_TIME_KEY)) {
             return false;
         }
@@ -570,11 +645,9 @@ public class MobListener implements Listener {
         UUID mobId = mob.getUniqueId();
         UUID playerId = player.getUniqueId();
 
-        // Update tracking
         followingMobs.put(mobId, playerId);
         followStartTime.put(mobId, System.currentTimeMillis());
 
-        // Set metadata
         mob.setMetadata(FOLLOW_META_KEY, new FixedMetadataValue(plugin, true));
         mob.setMetadata(FOLLOW_PLAYER_KEY, new FixedMetadataValue(plugin, playerId.toString()));
     }
@@ -586,21 +659,19 @@ public class MobListener implements Listener {
         Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             long currentTime = System.currentTimeMillis();
             ConfigManager config = plugin.getConfigManager();
-            int maxDuration = config.getFollowDuration() * 1000;  // Convert to ms
+            int maxDuration = config.getFollowDuration() * 1000;
             double maxDistance = config.getFollowMaxDistance();
 
             followingMobs.entrySet().removeIf(entry -> {
                 UUID mobId = entry.getKey();
                 UUID playerId = entry.getValue();
 
-                // Check duration
                 Long startTime = followStartTime.get(mobId);
                 if (startTime == null || (currentTime - startTime) > maxDuration) {
                     cleanupMob(mobId);
                     return true;
                 }
 
-                // Check distance and make mob follow
                 Entity mobEntity = Bukkit.getEntity(mobId);
                 Player player = Bukkit.getPlayer(playerId);
 
@@ -612,7 +683,6 @@ public class MobListener implements Listener {
                 if (mobEntity instanceof Mob) {
                     Mob mob = (Mob) mobEntity;
 
-                    // Check if mob can still follow
                     if (!MobCondition.canFollow(mob)) {
                         cleanupMob(mobId);
                         return true;
@@ -625,18 +695,16 @@ public class MobListener implements Listener {
                         return true;
                     }
 
-                    // Make mob pathfind to player
                     mob.getPathfinder().moveTo(player.getLocation());
                 }
 
                 return false;
             });
 
-            // Clean up old reaction cooldowns (remove entries older than 30 seconds)
             reactionCooldowns.entrySet().removeIf(entry ->
-                    (currentTime - entry.getValue()) > 30000L  // 30 seconds
+                    (currentTime - entry.getValue()) > 30000L
             );
-        }, 20L, 20L);  // Run every second
+        }, 20L, 20L);
     }
 
     /**

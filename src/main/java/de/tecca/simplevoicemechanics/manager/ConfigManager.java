@@ -19,10 +19,11 @@ import java.util.Set;
  *   <li>Per-category volume thresholds in decibels</li>
  *   <li>Mob blacklists</li>
  *   <li>Peaceful mob behaviors (look-at, follow-when-sneaking)</li>
+ *   <li>Environmental modifiers (biome and weather)</li>
  * </ul>
  *
  * @author Tecca
- * @version 1.2.0
+ * @version 1.3.0
  */
 public class ConfigManager {
 
@@ -30,6 +31,7 @@ public class ConfigManager {
     private static final String PATH_DETECTION = "detection";
     private static final String PATH_MOB_HEARING = "mob-hearing";
     private static final String PATH_SCULK = "sculk-hearing";
+    private static final String PATH_ENVIRONMENTAL = "environmental-modifiers";
 
     private final SimpleVoiceMechanics plugin;
     private FileConfiguration config;
@@ -101,6 +103,11 @@ public class ConfigManager {
     private double sculkVolumeThresholdDb;
     private long sculkCooldown;
 
+    // Environmental modifiers
+    private boolean environmentalModifiersEnabled;
+    private boolean biomeModifiersEnabled;
+    private boolean weatherModifiersEnabled;
+
     public ConfigManager(SimpleVoiceMechanics plugin) {
         this.plugin = plugin;
     }
@@ -116,6 +123,7 @@ public class ConfigManager {
         loadGlobalSettings();
         loadMobHearingSettings();
         loadSculkSettings();
+        loadEnvironmentalSettings();
     }
 
     /**
@@ -238,6 +246,15 @@ public class ConfigManager {
     }
 
     /**
+     * Loads environmental modifier settings.
+     */
+    private void loadEnvironmentalSettings() {
+        environmentalModifiersEnabled = config.getBoolean(PATH_ENVIRONMENTAL + ".enabled", true);
+        biomeModifiersEnabled = config.getBoolean(PATH_ENVIRONMENTAL + ".biome-modifiers.enabled", true);
+        weatherModifiersEnabled = config.getBoolean(PATH_ENVIRONMENTAL + ".weather-modifiers.enabled", true);
+    }
+
+    /**
      * Gets optional double from config (returns null if not set or null).
      */
     private Double getOptionalDouble(String path) {
@@ -343,6 +360,10 @@ public class ConfigManager {
     public double getSculkVolumeThresholdDb() { return sculkVolumeThresholdDb; }
     public long getSculkCooldown() { return sculkCooldown; }
 
+    // Environmental modifiers
+    public boolean isEnvironmentalModifiersEnabled() { return environmentalModifiersEnabled; }
+    public boolean isWeatherModifiersEnabled() { return weatherModifiersEnabled && environmentalModifiersEnabled; }
+
     // Legacy compatibility (deprecated)
     @Deprecated
     public boolean isHostileMobHearingEnabled() { return hostileMobsEnabled; }
@@ -377,5 +398,33 @@ public class ConfigManager {
         this.sculkEnabled = enabled;
         config.set(PATH_SCULK + ".enabled", enabled);
         plugin.saveConfig();
+    }
+
+    public void setEnvironmentalModifiersEnabled(boolean enabled) {
+        this.environmentalModifiersEnabled = enabled;
+        config.set(PATH_ENVIRONMENTAL + ".enabled", enabled);
+        plugin.saveConfig();
+    }
+
+    public boolean isBiomeModifiersEnabled() {
+        return config.getBoolean("environmental-modifiers.biome-modifiers.enabled", true);
+    }
+
+    public boolean isTimeModifiersEnabled() {
+        return config.getBoolean("environmental-modifiers.time-modifiers.enabled", true);
+    }
+
+    // Mob Group Alert
+    public boolean isMobGroupAlertEnabled() {
+        return config.getBoolean("mob-hearing.hostile-mobs.group-alert.enabled", true);
+    }
+
+    public int getMaxMobAlerts() {
+        return config.getInt("mob-hearing.hostile-mobs.group-alert.max-alerts", 5);
+    }
+
+    public double getGroupAlertRange(String mobType) {
+        String path = "mob-hearing.hostile-mobs.group-alert.ranges." + mobType.toLowerCase();
+        return config.getDouble(path, 16.0);
     }
 }
