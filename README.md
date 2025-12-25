@@ -6,6 +6,8 @@ Realistic mob reactions to voice in Minecraft. Uses Simple Voice Chat for dynami
 
 - **Real-time Audio Analysis**: Opus decoding with dB calculation
 - **Dynamic Range**: Louder voices heard from further away (40%-220% of base range)
+- **Environmental Modifiers** (NEW v1.3): Biome & time-based acoustics (caves echo, forests dampen, night = more sensitive)
+- **Mob Group Alerts** (NEW v1.3): Hostile mobs call reinforcements (zombies summon hordes, wolves hunt in packs)
 - **Natural Behavior**: Probabilistic reactions, cooldowns, eye contact system
 - **4 Mob Categories**: Hostile (attack), Neutral (look), Peaceful (look/flee/follow), Warden (anger system)
 - **Sculk Sensors**: GameEvent-based activation on loud voices
@@ -14,7 +16,7 @@ Realistic mob reactions to voice in Minecraft. Uses Simple Voice Chat for dynami
 
 | Category | Reaction | Threshold | Special Features |
 |----------|----------|-----------|------------------|
-| **Hostile** | Attack | -40 dB | Target player |
+| **Hostile** | Attack | -40 dB | Target player, **alert nearby allies (NEW)** |
 | **Neutral** | Look (8s) | -35 dB | 60% reaction chance |
 | **Peaceful** | Look (10s) | -30 dB | Flee at >-20 dB, Follow when sneaking + eye contact |
 | **Warden** | Anger +15-60 | -20 dB | Volume & distance dependent |
@@ -24,6 +26,20 @@ Realistic mob reactions to voice in Minecraft. Uses Simple Voice Chat for dynami
 - Normal speaking: Look at player
 - Loud speaking (>-20 dB): Flee 3 blocks away
 - Sneaking + Speaking + Eye contact: Follow for 60s
+
+### Environmental Effects (NEW v1.3)
+
+| Environment | Range Modifier | Sensitivity | Example |
+|-------------|---------------|-------------|---------|
+| **Cave + Night** | ~2.0x | -13 dB | **VERY DANGEROUS** - Mobs hear whispers from far away |
+| **Forest + Day** | 0.75x | +3 dB | Safer - Vegetation dampens sound |
+| **Nether** | 1.3x | Normal | Sound carries in open spaces |
+| **Mountain + Night** | 1.56x | -8 dB | Sound echoes across peaks |
+
+**Mob Group Alerts:**
+- Zombies: Call 5 allies within 16 blocks → Horde attack
+- Wolves: Alert pack within 20 blocks → Coordinated hunt
+- Piglins: Summon group within 18 blocks → Group combat
 
 ## Requirements
 
@@ -48,6 +64,28 @@ detection:
   max-range: 16.0
   min-range: 2.0
   falloff-curve: 1.0        # 0.5-2.0 (0.5=linear, 2.0=steep)
+```
+
+### Environmental Modifiers
+```yaml
+environmental-modifiers:
+  biome-modifiers:
+    enabled: true           # Caves echo, forests dampen
+  time-modifiers:
+    enabled: true           # Night = 30% more range, 8 dB more sensitive
+```
+
+### Mob Group Alerts
+```yaml
+mob-hearing:
+  hostile-mobs:
+    group-alert:
+      enabled: true
+      max-alerts: 5         # Max mobs to summon per detection
+      ranges:
+        zombie: 16.0        # Horde radius
+        wolf: 20.0          # Pack radius
+        piglin: 18.0        # Group radius
 ```
 
 ### Per-Category Settings
@@ -88,6 +126,7 @@ peaceful-mobs:
 - `/voicelistener reload` - Reload config
 - `/voicelistener toggle <hostile|neutral|peaceful|warden|sculk>` - Toggle category
 - `/voicelistener status` - Show current config
+- `/voicelistener env` - Show environmental modifiers (NEW v1.3)
 
 **Aliases:** `/vl`, `/voicemechanics`
 
@@ -103,6 +142,11 @@ hostile-mobs:
   volume-threshold-db: -50.0  # Whispers detected
   max-range: 24.0
   falloff-curve: 0.8
+environmental-modifiers:
+  biome-modifiers:
+    enabled: true             # Caves are extra dangerous
+  time-modifiers:
+    enabled: true             # Nights are terrifying
 ```
 
 ### Action Server
@@ -111,6 +155,9 @@ hostile-mobs:
   volume-threshold-db: -25.0  # Only loud speaking
   max-range: 12.0
   falloff-curve: 1.5
+  group-alert:
+    enabled: true
+    max-alerts: 8             # Larger mob groups!
 ```
 
 ### Warden Extreme Challenge
@@ -120,6 +167,40 @@ warden:
   max-range: 32.0
   falloff-curve: 0.5
 ```
+
+### Hardcore Survival (NEW v1.3)
+```yaml
+environmental-modifiers:
+  biome-modifiers:
+    enabled: true
+  time-modifiers:
+    enabled: true
+mob-hearing:
+  hostile-mobs:
+    volume-threshold-db: -50.0
+    group-alert:
+      enabled: true
+      max-alerts: 10          # Massive hordes!
+```
+
+## Gameplay Examples (NEW v1.3)
+
+**Cave Exploration at Night:**
+- Biome: Cave (1.5x range, -5 dB)
+- Time: Night (1.3x range, -8 dB)
+- **Combined: ~2x range, -13 dB more sensitive**
+- Result: Whispering attracts zombies from far away. 1 zombie calls 5 more → 6 zombies attack!
+
+**Forest Stealth (Day):**
+- Biome: Forest (0.75x range, +3 dB)
+- Time: Day (normal)
+- **Combined: 0.75x range**
+- Result: Vegetation dampens sound. Normal speaking is safe.
+
+**Nether Fortress:**
+- Biome: Nether (1.3x range)
+- Mobs: Piglins (18 block alert)
+- Result: 1 Piglin hears you → alerts 5 nearby Piglins → coordinated group attack
 
 ## Debug Options
 
@@ -131,23 +212,29 @@ debug:
   warden-logging: false
   sculk-logging: false
   peaceful-logging: false
+  environmental-logging: false  # NEW v1.3
+  group-alert-logging: false    # NEW v1.3
 ```
 
 ## Technical Details
 
 **Detection Flow:**
 1. Audio packet received → Decode Opus → Calculate dB
-2. Check category threshold → Calculate effective range
-3. Probability-based detection → Natural behavior check
-4. Execute action (Attack/Look/Flee/Follow)
+2. **NEW: Apply environmental modifiers (biome + time)**
+3. Check category threshold → Calculate effective range
+4. Probability-based detection → Natural behavior check
+5. Execute action (Attack/Look/Flee/Follow)
+6. **NEW: If hostile detected, alert nearby allies**
 
 **Formulas:**
 ```
-Effective Range = Config Range × (1.0 + (dB - Threshold) / 25.0)
+Effective Range = Config Range × Biome Mult × Time Mult × (1.0 + (dB - Threshold) / 25.0)
 Capped: 0.5× to 2.5×
 
 Detection Probability = (1 - normalized_distance)^falloff_curve
 100% at ≤ min-range, 0% at ≥ max-range
+
+Mob Alerts = Dynamic (1-5 based on distance, closer = more alerts)
 ```
 
 ## API Usage
@@ -163,6 +250,13 @@ public void onVoiceDetected(VoiceDetectedEvent event) {
 // Access config
 ConfigManager config = plugin.getConfigManager();
 double threshold = config.getHostileVolumeThresholdDb();
+boolean biomeMods = config.isBiomeModifiersEnabled();
+
+// New utility classes
+Biome biome = location.getBlock().getBiome();
+double rangeMultiplier = BiomeModifier.getRangeMultiplier(biome);
+boolean isNight = TimeModifier.isNight(world);
+boolean isSocial = MobGroupAlert.isSocialMob(EntityType.ZOMBIE);
 ```
 
 ## Building
@@ -182,3 +276,4 @@ MIT License
 - Audio calculation adapted from Simple Voice Chat (henkelmax)
 - Built for Paper
 - SimpleVoiceChat API
+- Environmental acoustics inspired by real-world sound propagation
