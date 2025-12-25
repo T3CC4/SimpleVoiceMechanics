@@ -6,8 +6,8 @@ Realistic mob reactions to voice in Minecraft. Uses Simple Voice Chat for dynami
 
 - **Real-time Audio Analysis**: Opus decoding with dB calculation
 - **Dynamic Range**: Louder voices heard from further away (40%-220% of base range)
-- **Environmental Modifiers** (NEW v1.3): Biome & time-based acoustics (caves echo, forests dampen, night = more sensitive)
-- **Mob Group Alerts** (NEW v1.3): Hostile mobs call reinforcements (zombies summon hordes, wolves hunt in packs)
+- **Environmental Modifiers**: Biome & time-based acoustics (caves echo, forests dampen, night = more sensitive)
+- **Mob Group Alerts**: Hostile mobs call reinforcements (zombies summon hordes, wolves hunt in packs)
 - **Natural Behavior**: Probabilistic reactions, cooldowns, eye contact system
 - **4 Mob Categories**: Hostile (attack), Neutral (look), Peaceful (look/flee/follow), Warden (anger system)
 - **Sculk Sensors**: GameEvent-based activation on loud voices
@@ -27,7 +27,7 @@ Realistic mob reactions to voice in Minecraft. Uses Simple Voice Chat for dynami
 - Loud speaking (>-20 dB): Flee 3 blocks away
 - Sneaking + Speaking + Eye contact: Follow for 60s
 
-### Environmental Effects (NEW v1.3)
+### Environmental Effects
 
 | Environment | Range Modifier | Sensitivity | Example |
 |-------------|---------------|-------------|---------|
@@ -126,7 +126,6 @@ peaceful-mobs:
 - `/voicelistener reload` - Reload config
 - `/voicelistener toggle <hostile|neutral|peaceful|warden|sculk>` - Toggle category
 - `/voicelistener status` - Show current config
-- `/voicelistener env` - Show environmental modifiers (NEW v1.3)
 
 **Aliases:** `/vl`, `/voicemechanics`
 
@@ -168,7 +167,7 @@ warden:
   falloff-curve: 0.5
 ```
 
-### Hardcore Survival (NEW v1.3)
+### Hardcore Survival
 ```yaml
 environmental-modifiers:
   biome-modifiers:
@@ -183,7 +182,7 @@ mob-hearing:
       max-alerts: 10          # Massive hordes!
 ```
 
-## Gameplay Examples (NEW v1.3)
+## Gameplay Examples
 
 **Cave Exploration at Night:**
 - Biome: Cave (1.5x range, -5 dB)
@@ -212,8 +211,8 @@ debug:
   warden-logging: false
   sculk-logging: false
   peaceful-logging: false
-  environmental-logging: false  # NEW v1.3
-  group-alert-logging: false    # NEW v1.3
+  environmental-logging: false
+  group-alert-logging: false
 ```
 
 ## Technical Details
